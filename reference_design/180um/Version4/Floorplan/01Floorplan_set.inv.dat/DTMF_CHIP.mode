@@ -1,0 +1,9 @@
+catch { setAnalysisMode -analysisType bcwc }
+catch { setExtractRCMode  -engine preRoute }
+catch { setIlmMode -keepHighFanoutPorts true -keepLoopBack false -keepFlatten true }
+catch { setDelayCalMode -engine aae }
+catch { setImportMode -discardFloatingVNets false }
+catch { setImportMode -keepEmptyModule true }
+catch { setFPlanMode -defaultTechSite tsm3site }
+catch { setFPlanMode -maxIoHeight false }
+catch { setFPlanMode -powerRailLayer {} }
