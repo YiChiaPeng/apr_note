@@ -220,6 +220,52 @@ floorPlan -site tsm3site -r 0.75 0.702385 100.94 100.44 100.32 100.24
 
 ---
 
+## Step 2 補充：什麼是 Halo？
+
+巨集放好位置之後、加電源環之前，通常會先在巨集四周留一圈「保留區」——這就是 **halo**（也叫 keepout margin）。目的是避免 standard cell 貼著巨集邊界放，導致巨集接腳附近繞線塞爆，也預留空間給接下來要加的 power ring／stripe。
+
+```
+┌ halo（保留區，四邊可各自設定寬度）──────────────┐
+│                                                │
+│        ┌──────────────────┐                   │
+│        │       Macro       │                  │
+│        │   (RAM/ROM/PLL)   │                  │
+│        └──────────────────┘                   │
+│                                                │
+└────────────────────────────────────────────────┘
+▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤  ← standard cell 不會被放進 halo 裡
+```
+
+---
+
+## Step 2 補充：Halo 的真實案例
+
+**DTMF_CHIP 真實指令**（Version5，`Floorplan/02MacroHaloset` checkpoint）：
+```tcl
+addHaloToBlock {15 15 15 15} DTMF_INST/ARB_INST/ROM_512x16_0_INST
+addHaloToBlock {25 35 15 25} DTMF_INST/PLLCLK_INST
+```
+`{左 下 右 上}` 四個數字是四邊的保留寬度（μm）——指令歷史裡這組數字被反覆調整了近 10 次，代表 halo 寬度跟 floorplan 尺寸一樣，是「先抓大概、看壅塞再調整」的疊代過程，不是一次定案。
+
+> 對照 `note/floorplan.md` 3.2.12–3.2.15 節（硬性／軟性 blockage、`set_keepout_margin`、`create_route_guide`）
+
+---
+
+## Step 2 補充：Place Halo vs Routing Halo
+
+Halo 概念上分兩種用途，只是不同工具的實作方式不太一樣：
+
+| | Place Halo（置放保留區） | Routing Halo（繞線保留區） |
+|---|---|---|
+| 擋什麼 | 阻止 standard cell 被放進這個範圍 | 限制某些金屬層的訊號線不能繞過這個範圍 |
+| 為什麼要擋 | 避免 cell 貼著巨集邊界，接腳附近繞線空間不夠 | 幫巨集自己的電源環/接腳留出走線空間，或避免數位訊號干擾類比巨集 |
+| ICC 對應指令 | `set_keepout_margin -type hard/soft -outer {左 下 右 上}` | `create_route_guide -no_signal_layer {METAL5 METAL6} -coordinate {...}` |
+| Innovus 對應指令 | `addHaloToBlock {左 下 右 上} inst` | 同一個指令一次設定，沒有再分開下第二道指令 |
+
+**DTMF_CHIP 真實案例只用了 `addHaloToBlock` 一種指令**——代表 Innovus 把 place halo 跟 routing halo 合併成同一個保留區設定，不像 ICC 拆成 `set_keepout_margin`（置放）＋`create_route_guide`（繞線）兩道指令；概念上仍是同一件事：**在巨集周圍留一圈「別人不能進來」的緩衝區**，保留給接下來的電源網路與訊號出線空間。
+
+---
+
 <!-- _class: lead -->
 
 # Step 3 — Power Planning
