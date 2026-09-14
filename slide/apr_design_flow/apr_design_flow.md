@@ -220,7 +220,43 @@ floorPlan -site tsm3site -r 0.75 0.702385 100.94 100.44 100.32 100.24
 
 ---
 
+## Step 2 補充：什麼是 Partition？
+
+晶片太大、cell 數太多時，一次「扁平化（flat）」placement/routing 會讓工具跑不動、收斂太慢，這時會把設計切成好幾個獨立區塊（**partition**），每個區塊各自做 placement/CTS/routing（像縮小版的 APR），最後再組裝回頂層——這是**階層化（hierarchical）設計**，跟本簡報兩個案例用的**扁平化**流程相對。
+
+```
+             頂層（top）
+        ┌───────┬───────┬───────┐
+        │Block A│Block B│Block C│   ← 每個區塊各自獨立做 placement/CTS/routing
+        └───────┴───────┴───────┘
+```
+
+- 好處：區塊之間可以平行開發、各自收斂，加速大型設計的疊代速度
+- 代價：切分邊界要事先規劃好每個區塊對外露出哪些 pin，切壞了反而更難修
+
+> `gcd`／`DTMF_CHIP` 都用扁平化 placement（`setPlaceMode -fp false`，Step 4 已提過），整個設計當一個區塊處理，沒有真的切 partition。
+
+---
+
+## Step 2 補充：什麼是 Feedthrough？
+
+切成區塊後，區塊邊界變成固定的「牆」，訊號只能透過事先定義的 pin 進出。但若 A 區塊要送訊號給 C 區塊，實體佈局上卻剛好要「穿過」B 區塊——這時就在 B 加一個 **feedthrough pin**，訊號邏輯上跟 B 完全無關，只是被引導原封不動地穿過去繼續往 C 走。
+
+```
+┌─────────┐      ┌─────────┐      ┌─────────┐
+│ Block A │ ───▶ │ Block B │ ───▶ │ Block C │
+└─────────┘      │ (借道)   │      └─────────┘
+                  └─────────┘
+                  feedthrough pin：訊號穿過 B，B 內部邏輯完全用不到這條線
+```
+
+指令歷史裡自然找不到 feedthrough 的實例——這是設計規模大到必須分區塊時才會遇到的問題，本次兩個案例規模都不需要切分。
+
+---
+
 ## Step 2 補充：什麼是 Halo？
+
+（切完 partition／決定好每個區塊的範圍後，區塊內部的巨集才會遇到下面這個問題）
 
 巨集放好位置之後、加電源環之前，通常會先在巨集四周留一圈「保留區」——這就是 **halo**（也叫 keepout margin）。目的是避免 standard cell 貼著巨集邊界放，導致巨集接腳附近繞線塞爆，也預留空間給接下來要加的 power ring／stripe。
 
@@ -263,40 +299,6 @@ Halo 概念上分兩種用途，只是不同工具的實作方式不太一樣：
 | Innovus 對應指令 | `addHaloToBlock {左 下 右 上} inst` | 同一個指令一次設定，沒有再分開下第二道指令 |
 
 **DTMF_CHIP 真實案例只用了 `addHaloToBlock` 一種指令**——代表 Innovus 把 place halo 跟 routing halo 合併成同一個保留區設定，不像 ICC 拆成 `set_keepout_margin`（置放）＋`create_route_guide`（繞線）兩道指令；概念上仍是同一件事：**在巨集周圍留一圈「別人不能進來」的緩衝區**，保留給接下來的電源網路與訊號出線空間。
-
----
-
-## Step 2 補充：什麼是 Partition？
-
-晶片太大、cell 數太多時，一次「扁平化（flat）」placement/routing 會讓工具跑不動、收斂太慢，這時會把設計切成好幾個獨立區塊（**partition**），每個區塊各自做 placement/CTS/routing（像縮小版的 APR），最後再組裝回頂層——這是**階層化（hierarchical）設計**，跟本簡報兩個案例用的**扁平化**流程相對。
-
-```
-             頂層（top）
-        ┌───────┬───────┬───────┐
-        │Block A│Block B│Block C│   ← 每個區塊各自獨立做 placement/CTS/routing
-        └───────┴───────┴───────┘
-```
-
-- 好處：區塊之間可以平行開發、各自收斂，加速大型設計的疊代速度
-- 代價：切分邊界要事先規劃好每個區塊對外露出哪些 pin，切壞了反而更難修
-
-> `gcd`／`DTMF_CHIP` 都用扁平化 placement（`setPlaceMode -fp false`，Step 4 已提過），整個設計當一個區塊處理，沒有真的切 partition。
-
----
-
-## Step 2 補充：什麼是 Feedthrough？
-
-切成區塊後，區塊邊界變成固定的「牆」，訊號只能透過事先定義的 pin 進出。但若 A 區塊要送訊號給 C 區塊，實體佈局上卻剛好要「穿過」B 區塊——這時就在 B 加一個 **feedthrough pin**，訊號邏輯上跟 B 完全無關，只是被引導原封不動地穿過去繼續往 C 走。
-
-```
-┌─────────┐      ┌─────────┐      ┌─────────┐
-│ Block A │ ───▶ │ Block B │ ───▶ │ Block C │
-└─────────┘      │ (借道)   │      └─────────┘
-                  └─────────┘
-                  feedthrough pin：訊號穿過 B，B 內部邏輯完全用不到這條線
-```
-
-指令歷史裡自然找不到 feedthrough 的實例——這是設計規模大到必須分區塊時才會遇到的問題，本次兩個案例規模都不需要切分。
 
 ---
 
@@ -516,6 +518,43 @@ place_opt_design       ;# 反覆執行 5 輪才收斂
 > `01Placement.inn` 的存檔時機其實是**剛設完 `setDesignMode`、`place_opt_design` 都還沒下**的那一刻；真正的 5 輪 placement 是在同一個 Innovus session 裡繼續往下做、直到存下一階段的 `clk_tree.inn` 之前才發生。
 
 **checkpoint 檔名不代表「做完該步驟後」的狀態，要配合指令歷史（`inn.cmd.gz`）才能還原真實時間點**——這個提醒之後在 Step 1 補充（附錄）比對 MMMC 設定時還會再用到同一招。
+
+---
+
+## Step 4 補充：什麼是 SAIF？
+
+Placement 階段如果要做**動態功耗最佳化**，需要知道每個訊號實際的**翻轉率（toggle rate）**——因為動態功耗 ∝ 電容 × 電壓² × 翻轉率，翻轉率估得不準，功耗分析就不準。
+
+**SAIF（Switching Activity Interchange Format）** 就是紀錄翻轉率的檔案格式：讓 testbench 真正跑一段模擬向量，把每個訊號 0→1／1→0 的翻轉次數（TC）、維持 0／1 的時間（T0／T1）都記錄下來。
+
+```tcl
+read_saif -input DESIGN.saif -instance_name I_TOP   ;# 讀入模擬得到的真實翻轉率
+report_power                                        ;# 用真實翻轉率算動態功耗
+```
+
+**沒有 SAIF 怎麼辦？** 只能手動用經驗值猜：
+```tcl
+set_switching_activity -toggle_rate 0.02 a          ;# 針對個別 port 猜一個翻轉率
+set power_default_toggle_rate 0.003                 ;# 其餘訊號用預設值
+```
+用猜的終究不如真實模擬資料準確——SAIF 的價值就在於「這是電路真的跑起來量到的數字」。
+
+---
+
+## Step 4 補充：什麼是 UPF？
+
+**UPF（Unified Power Format）** 是一組 TCL 指令構成的檔案格式，用來描述晶片的「**電源意圖（power intent）**」：有哪些電源域（power domain）、各自電壓多少、什麼情況下要關斷省電——這份意圖會驅動 EDA 工具在對的位置自動插入對的特殊 cell：
+
+| Cell | 作用 |
+|---|---|
+| **Power Switch**（header/footer） | 實際切斷／接通某個電源域的供電 |
+| **Isolation Cell** | 電源域斷電時把輸出鉗在固定值（0 或 1），避免下游浮接產生短路電流 |
+| **Level Shifter** | 兩個不同電壓的電源域之間做電位轉換（如 1.0V ↔ 1.2V） |
+| **Retention Register** | 斷電前先把暫存器資料存起來，復電後寫回去，不遺失狀態 |
+
+**為什麼在 Placement 處理**：屬於某電源域的 cell 要放進該域的實體區域（voltage area），規劃得從 Floorplan 就開始準備。
+
+> `gcd`／`DTMF_CHIP` 都是單一電源域設計，找不到 UPF 指令——多電壓域 SoC 才會用到。
 
 ---
 
