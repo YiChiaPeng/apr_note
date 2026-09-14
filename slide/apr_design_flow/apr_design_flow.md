@@ -698,6 +698,38 @@ Detail Routing（在格子裡把每條線精確的金屬線路徑、via 都畫�
 
 ---
 
+## Step 6 補充：Horizontal Congestion vs Vertical Congestion
+
+Congestion 不是單一數字，而是**分方向、分金屬層**算的：
+
+- 每個 GRC（Global Routing Cell）有四個邊，量測這個邊「需要幾條走線（demand）」vs「實際能提供幾條 routing track（supply）」，格式如 `39/35`
+- **溢出（overflow）＝ demand − supply**，大於 0 代表這裡的線比軌道還多，繞不進去
+- 每層金屬都有**預設走線方向**（如 M1 水平、M2 垂直），所以壅塞天生分成兩個方向：
+  - **Horizontal congestion（H）**：左右方向的走線資源夠不夠
+  - **Vertical congestion（V）**：上下方向的走線資源夠不夠
+
+> 對照 `note/floorplan.md` 3.4.3 節；`report_congestion -grc_based -by_layer` 可分層看熱圖
+
+---
+
+## Step 6 補充：真實壅塞報告怎麼看
+
+```
+phase5. Both Dirs: Overflow = 3621  GRCs = 2247 (2.73%)
+phase5. H routing: Overflow = 1724  GRCs = 1139 (1.38%)
+phase5. V routing: Overflow = 1897  GRCs = 1108 (1.34%)
+phase5. METAL1  : Overflow = 1162   GRCs = 879  (2.13%)
+phase5. METAL2  : Overflow = 1826   GRCs = 1079 (2.62%)
+phase5. METAL5  : Overflow = 0      GRCs = 0    (0.00%)
+phase5. METAL6  : Overflow = 0      GRCs = 0    (0.00%)
+```
+
+- 這份報告 H／V 溢出比例很接近（1.38% vs 1.34%），代表壅塞方向大致平衡；如果兩者差很多，通常代表 floorplan 長寬比或巨集擺放方向有問題（例如晶片被拉得很長很扁，某一個方向的走線通道天生較窄）
+- **M5／M6 Overflow 都是 0**——呼應 Step 3 補充的 M0–M8 概念：這兩層被劃給電源網路，訊號本來就很少走這裡，壅塞自然也低
+- 經驗法則：任一 GRC 溢出**大於 10**，或**超過 2%** 的 GRC 邊沿有溢出，就算嚴重壅塞，該回頭調整 floorplan／placement 而非硬繞
+
+---
+
 ## Step 6：Routing — `gcd` 範例
 
 ```tcl
