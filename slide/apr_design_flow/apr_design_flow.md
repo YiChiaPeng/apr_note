@@ -741,6 +741,36 @@ ecoChangeCell -inst DTMF_INST/SPI_INST/dout_reg_1  -downsize
 
 ---
 
+## Step 6 補充：如果晶片已經流片了，bug 怎麼修？
+
+上一頁的 ECO 是**流片（tapeout）前**做的，電晶體位置都還沒定案，改起來相對自由。但如果晶片已經**流片**——電晶體已經透過光罩蝕刻在矽晶圓上，位置再也不能改變——發現 bug 總不能整套光罩重做（一套光罩要價數百萬到上千萬美金，還要再等好幾個月）。
+
+**Spare cell（空閒單元）**就是為了應對這種情況的保險：在 placement 階段，故意在設計各處**多放一些沒接線、暫時沒作用的簡單邏輯閘**（通常是 NAND2／NOR2），平均分散在整個晶片裡。真的抓到 bug 時只要：
+
+1. 把出問題的邏輯訊號**斷開**
+2. 改幾條**上層金屬線的 routing**，把訊號接去附近的 spare cell，重新組出正確邏輯
+
+→ 完全不用動下層電晶體光罩，只改幾層金屬光罩就能修，成本跟時間差好幾個量級。這種做法叫**光罩後 ECO（post-mask ECO）**，也稱 **freeze silicon ECO**。
+
+---
+
+## Step 6 補充：Spare Cell 怎麼加、怎麼用
+
+**Placement 階段先埋好 spare cell**（ICC 指令，Innovus 概念相同）：
+```tcl
+insert_spare_cells -lib_cell {NAND2 NOR2} -num_instances 20 \
+  -cell_name SPARE_PREFIX_NAME -tie -hier_cell ALU
+
+set_dont_touch [all_spare_cells] true               ;# 沒接線也不會被當無用邏輯刪掉
+set_attribute [all_spare_cells] is_soft_fixed true  ;# placement 不大搬動，CTS/routing 仍可微調
+```
+
+**真的要修 bug 時**：斷開錯誤邏輯的訊號 → 挑一顆**離錯誤 cell 最近**的 spare cell（減少金屬修改幅度）→ 只改金屬層把訊號接過去（`route_zrt_eco`）。
+
+> `gcd`／`DTMF_CHIP` 指令歷史裡都找不到 `insert_spare_cells`／`spread_spare_cells`，但 Innovus 的 `setPlaceMode` 其實已經內建 `-ignoreSpare`／`-moduleAwareSpare` 這兩個 spare cell 感知選項——工具早就準備好支援，只是這兩個練習案例沒有用到。
+
+---
+
 ## Step 6：Routing 檢查清單
 
 - [ ] Global routing 壅塞是否可接受（溢出 GRC 比例、最大溢出量）
