@@ -266,6 +266,40 @@ Halo 概念上分兩種用途，只是不同工具的實作方式不太一樣：
 
 ---
 
+## Step 2 補充：什麼是 Partition？
+
+晶片太大、cell 數太多時，一次「扁平化（flat）」placement/routing 會讓工具跑不動、收斂太慢，這時會把設計切成好幾個獨立區塊（**partition**），每個區塊各自做 placement/CTS/routing（像縮小版的 APR），最後再組裝回頂層——這是**階層化（hierarchical）設計**，跟本簡報兩個案例用的**扁平化**流程相對。
+
+```
+             頂層（top）
+        ┌───────┬───────┬───────┐
+        │Block A│Block B│Block C│   ← 每個區塊各自獨立做 placement/CTS/routing
+        └───────┴───────┴───────┘
+```
+
+- 好處：區塊之間可以平行開發、各自收斂，加速大型設計的疊代速度
+- 代價：切分邊界要事先規劃好每個區塊對外露出哪些 pin，切壞了反而更難修
+
+> `gcd`／`DTMF_CHIP` 都用扁平化 placement（`setPlaceMode -fp false`，Step 4 已提過），整個設計當一個區塊處理，沒有真的切 partition。
+
+---
+
+## Step 2 補充：什麼是 Feedthrough？
+
+切成區塊後，區塊邊界變成固定的「牆」，訊號只能透過事先定義的 pin 進出。但若 A 區塊要送訊號給 C 區塊，實體佈局上卻剛好要「穿過」B 區塊——這時就在 B 加一個 **feedthrough pin**，訊號邏輯上跟 B 完全無關，只是被引導原封不動地穿過去繼續往 C 走。
+
+```
+┌─────────┐      ┌─────────┐      ┌─────────┐
+│ Block A │ ───▶ │ Block B │ ───▶ │ Block C │
+└─────────┘      │ (借道)   │      └─────────┘
+                  └─────────┘
+                  feedthrough pin：訊號穿過 B，B 內部邏輯完全用不到這條線
+```
+
+指令歷史裡自然找不到 feedthrough 的實例——這是設計規模大到必須分區塊時才會遇到的問題，本次兩個案例規模都不需要切分。
+
+---
+
 <!-- _class: lead -->
 
 # Step 3 — Power Planning
@@ -742,6 +776,34 @@ addMetalFill
 ```
 
 > 詳見 `note/routing.md` 附錄 Step.7；ICC 概念對應 `insert_pad_filler`（`floorplan.md` 3.2.4 節，填的是 pad 間隙而非 cell row 間隙）
+
+---
+
+## Step 7 補充：為什麼要放這些「非邏輯」cell？
+
+除了做邏輯功能的 standard cell，APR 過程還會插入好幾種**沒有邏輯功能**、純粹為了製程／電性可靠度而加的特殊 cell：
+
+| Cell | 放在哪裡 | 為什麼要放 |
+|---|---|---|
+| **Tie Hi/Lo** | 需要固定接高/低電位的接腳旁 | 有些輸入腳需要恆為 0 或 1（如未用到的功能腳），不能直接拉線接 VDD/VSS 了事，要透過 tie cell 才符合訊號完整性／ESD 要求 |
+| **Well Tap** | 每隔一段距離、standard cell row 中 | 定期把 N-well／substrate 接回 VDD／VSS，避免寄生 PNPN 結構偏壓漂移觸發 **latch-up**（閂鎖效應，會讓電路短路燒毀） |
+| **End Cap** | 每一排 cell row 的最左/最右端 | 保護 row 邊界的 well／擴散區不被製程邊緣效應破壞，也避免邊界 DRC 違規（有時跟 well tap 合併成同一顆 cell） |
+| **Filler** | 標準單元列間的空隙 | 維持 N/P well 與電源軌連續，滿足製程對 cell density 的要求（上頁已介紹） |
+| **Decap** | 靠近耗電大／開關頻繁的邏輯附近 | 內建小電容補足局部瞬間電流需求，降低電源網路的**瞬時 IR drop／雜訊** |
+
+**共同點**：這五種 cell 都不做邏輯運算，純粹是為了讓電路能被穩定製造、穩定運作。
+
+---
+
+## Step 7 補充：DTMF_CHIP 真實案例做了哪些？
+
+- ✅ **Filler**：`05MetalFill` checkpoint 明確下了 `addFiller -prifix -doDRC`
+- ✅ **一般電源腳連接**：`globalNetConnect VDD/VSS -type pgpin ...`
+- ❌ **Tie Hi/Lo**：指令歷史裡**沒有** `-type tiehi/tielo` 或 `addTieHiLo`，代表這顆設計沒有需要固定接高/低電位的閒置腳，或這一步被跳過
+- ❌ **Well Tap／End Cap**：只看到 `setEndCapMode -boundary_tap false`——把「end cap 順便當 well tap 用」的功能**關閉**，也找不到任何實際插入的指令
+- ❌ **Decap**：沒有找到任何 decap cell 插入指令
+
+**結論**：這是一份**課堂練習用的簡化流程**，聚焦在 floorplan→placement→CTS→routing→sign-off 主線，沒有做到量產晶片會需要的 well tap／end cap／decap 收尾工作——理論上這五種 cell 都該懂，但看真實案例時要留意「學生範例 ≠ 量產完整流程」。
 
 ---
 
