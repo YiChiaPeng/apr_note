@@ -145,15 +145,18 @@ Verilog/VHDL   →   RTL 轉成 gate-level     →   Floorplan ~ Routing    → 
 - 建立 MMMC（Multi-Mode Multi-Corner）多角多模分析設定
 - 讀入 IO 接腳位置約束
 
-**`gcd` 範例：**
+> 對照 `note/floorplan.md` 附錄 Step.1；ICC 對應指令為 `create_mw_lib`、`import_designs`、`read_sdc`。
+
+---
+
+## Step 1：Design Import — `gcd` 範例
+
 ```tcl
 set TOP_DESIGN "gcd"
 loadConfig ../design_data/${TOP_DESIGN}.conf 1
 ```
 `gcd.conf` 一次集中定義了 netlist、SDC、LEF、IO 檔、MMMC view 檔與 floorplan 預設參數；`gcd.view` 用 `create_library_set`／`create_analysis_view` 建立 slow.lib(setup 角)／fast.lib(hold 角) 的 MMMC 設定。
 
-> 對照 `note/floorplan.md` 附錄 Step.1；ICC 對應指令為 `create_mw_lib`、`import_designs`、`read_sdc`。
->
 > DTMF_CHIP 實際用的完整 MMMC corner／OCV 設定較深入，整理在簡報最後「進階補充」章節。
 
 ---
@@ -327,6 +330,19 @@ sroute -connect {blockPin padPin padRing corePin floatingStripe} \
 verifyConnectivity -type all -error 1000 -warning 50   ;# 確認電源網路乾淨
 ```
 真實案例除了 core ring，**巨集**也額外加了一圈 ring，並用多條 stripe 補密度，比 `gcd` 範例複雜得多。
+
+---
+
+## Step 3 補充：什麼樣的巨集需要 Block Power Ring
+
+不是每個巨集都要另外加 ring，通常符合以下特徵才會加：
+
+- **硬巨集（hard macro）**：像 RAM／ROM／PLL 這種內部電路固定的 IP，內部沒有 standard cell 那種 rail 結構，需要一圈環把周邊電源接腳整合起來，才能穩定跟外部電源網路對接
+- **耗電量大、電流密度高**：容量大的記憶體耗電相對集中，只靠 core 的 stripe 供電容易在巨集周圍造成 IR drop 過大，加一圈 block ring 能就近補強
+- **獨立／類比電源域**：像 PLL 這種類比電路通常吃自己單獨一組 VDD/VSS（避免被數位開關雜訊干擾），需要專屬的 ring 而不是直接共用數位 core ring
+- **離 core ring 較遠、位於晶片內部**：巨集若不是貼著 die 邊緣擺放，離主要電源環較遠，加 block ring 再往外接 stripe，比單靠核心 stripe 硬牽線更穩定
+
+**DTMF_CHIP 案例對照**：從 MMMC 的 library set 就能看到這顆晶片有 `pllclk`（PLL）、`ram_128x16A`、`ram_256x16A`、`rom_512x16A` 幾個硬巨集——這正是前一頁 `addRing -type block_rings -around selected` 特別再包一圈的對象。
 
 ---
 
