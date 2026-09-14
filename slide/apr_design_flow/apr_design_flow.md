@@ -278,6 +278,11 @@ M0  ▮▮▮ 顆粒最細的 local interconnect（只有先進製程才有）�
 - **由下往上**：線越細、間距（pitch）越小 → 越適合精密的短距離連線，但電阻大；線越粗、間距越大 → 電阻小、能承受大電流，適合長距離走線與電源
 - **M0**：只有較先進製程（通常 <45nm）才會有的「local interconnect」層，專門把電晶體接到 M1；**180nm 這種較舊製程通常沒有 M0**，電晶體直接由 M1 接出
 - **M1**：幾乎所有製程共通的最下層通用走線層，standard cell 的電源 rail、同排 cell 間短距離訊號都在這層
+
+---
+
+## Step 3 補充：中高層金屬實際怎麼用
+
 - **M2–M4（中層）**：cell 之間、跨 row 的訊號 routing 主力——DTMF_CHIP 最終總繞線長 320,640μm **全部落在 M1–M4**
 - **M5–M6（次上層）**：線較粗、電阻較小，DTMF_CHIP 拿來做 Power Ring／Stripe；`gcd` 案例則是把 core ring 放在 M4/M5
 - **M7–M8（最上層）**：層數更多的製程才會用到，通常給全晶片級電源網格或很長的 global 訊號
@@ -408,7 +413,13 @@ place_opt_design       ;# 反覆執行 5 輪才收斂
 
 **真實案例比教學範例多做的事**：先匯入 scan chain DEF、指定兩條 scan chain 起訖點，並用 `place_opt_design` 反覆跑 **5 輪**才收斂 —— 教學範例只跑一次是因為電路太小、沒有真實收斂壓力。
 
-> **checkpoint 陷阱**：`01Placement.inn` 的存檔時機其實是**剛設完 `setDesignMode`、`place_opt_design` 都還沒下**的那一刻；真正的 5 輪 placement 是在同一個 Innovus session 裡繼續往下做、直到存下一階段的 `clk_tree.inn` 之前才發生。**checkpoint 檔名不代表「做完該步驟後」的狀態，要配合指令歷史（`inn.cmd.gz`）才能還原真實時間點。**
+---
+
+## Step 4 補充：checkpoint 陷阱
+
+> `01Placement.inn` 的存檔時機其實是**剛設完 `setDesignMode`、`place_opt_design` 都還沒下**的那一刻；真正的 5 輪 placement 是在同一個 Innovus session 裡繼續往下做、直到存下一階段的 `clk_tree.inn` 之前才發生。
+
+**checkpoint 檔名不代表「做完該步驟後」的狀態，要配合指令歷史（`inn.cmd.gz`）才能還原真實時間點**——這個提醒之後在 Step 1 補充（附錄）比對 MMMC 設定時還會再用到同一招。
 
 ---
 
@@ -580,6 +591,43 @@ verifyProcessAntenna -report DTMF_CHIP.antenna.rpt -error 1000
 
 ---
 
+## Step 6 補充：Routing 怎麼解決 Antenna 違規（問題根源）
+
+**問題根源**：晶圓廠用電漿蝕刻（plasma etching）把多餘金屬蝕刻掉來刻出線路。蝕刻過程中，一段還沒接到上層金屬／擴散區的長金屬線，會像天線一樣收集帶電離子，在它連接的電晶體閘極（gate）上累積電壓——電壓太高會把閘極氧化層打穿，電晶體永久損壞。
+
+```
+蝕刻進行中，金屬只接到低層、還沒接上層 = 危險狀態：
+
+   ══════════════════════  M1（暴露面積大，像一根天線收集電荷）
+          │
+        [ Gate ]  ← 電荷持續累積，電壓越來越高，可能打穿閘極氧化層
+```
+
+- **天線規則（antenna rule）**：晶圓廠規定「與某個 gate 相連的金屬總面積 ÷ 該 gate 面積」不能超過某個比值，超過就觸發 antenna violation
+- Innovus 用 `verifyProcessAntenna` 檢查是否違反這個規則，DTMF_CHIP 案例被呼叫了 **27 次**，代表這是「繞線 → 檢查違規 → 再繞線」不斷疊代收斂的過程，不是一次到位
+
+---
+
+## Step 6 補充：Routing 怎麼修 Antenna（跳層／插二極體）
+
+兩種常見修法：
+
+```
+方法一：跳層（layer jumping）             方法二：插二極體（diode）
+   ═══  M1（先跳到上層，暴露面積變小）        ═══════════════ M1
+    │                                          │           │
+   ═══  M2                                  [ Gate ]    [ Diode ] → GND
+        │                                                  ↑ 導走多餘電荷
+      [ Gate ]  ← 累積電荷少很多，安全
+```
+
+- **跳層**：讓 gate 連接的線儘早跳到上層金屬，蝕刻低層金屬時暴露面積變小，累積電荷自然變少——這是對既有繞線改動最小、router 最常用的做法
+- **插二極體**：在 gate 連接的網路上接一顆反向二極體到 GND，把多餘電荷導走，但需要額外空間放二極體 cell
+
+**DTMF_CHIP 實際怎麼修的**：指令歷史裡**沒有**看到手動插二極體的指令，也沒有特別開類似 `-insert_diodes_during_routing` 的選項——代表是 **Innovus 的 NanoRoute 在 detail routing 時自動用跳層方式修**，搭配 `-routeTopRoutingLayer 4`（訊號最高只走到 M4，呼應 Step 3 補充的金屬層概念）反覆 `routeDesign` 疊代，讓 27 次檢查裡的違規數一路收斂到 0。
+
+---
+
 ## Step 6：真實案例的 ECO 修正
 
 postCTS 的 setup／hold 最佳化跑完後，指令歷史顯示學生發現 `SPI_INST` 底下好幾顆暫存器彼此距離太近、hold time 快不夠了，於是**手動下 ECO 指令**（而不是重跑整個 placement/CTS）：
@@ -654,6 +702,10 @@ verifyGeometry
 verifyConnectivity -type all -error 1000 -warning 50
 verifyProcessAntenna -reportfile gcd.antenna.rpt -error 1000
 ```
+
+---
+
+## Step 8：DTMF_CHIP 最終 sign-off 結果
 
 **這裡的「sign-off」是什麼意思？** 前面各階段（Placement 反覆跑 5 輪、CTS 反覆微調）用的都是比較寬鬆、求快的分析設定；`05MetalFill` 這一版是**用最嚴謹的 OCV 分析（見進階補充）重新驗收過**的最終結果——通過 sign-off，才代表這批數字真的可信賴、可以交付。
 
@@ -777,7 +829,13 @@ create_analysis_view -name dtmf_view_hold  -constraint_mode common -delay_corner
 set_analysis_view -setup {dtmf_view_setup} -hold {dtmf_view_hold}
 ```
 
-**結構拆解**：2 組 library set（`_min`＝fast 製程角，含 PLL/RAM/ROM/std-cell 全部換成 fast 版；`_max`＝slow 版）交叉 1 個共用 `dtmf_rc_corner`（RC 抽取條件相同，只有 library 角落不同）→ 產生 2 個 delay corner → 搭配同一份 `dtmf.sdc` 的 1 個 constraint mode → 組成 2 個 analysis view：**setup 用 slow 角（`corner_max`）、hold 用 fast 角（`corner_min`）**，符合 setup 抓最壞情況（慢）、hold 抓最壞情況（快）的物理直覺。
+---
+
+## Step 1 補充：MMMC 結構拆解
+
+2 組 library set（`_min`＝fast 製程角，含 PLL/RAM/ROM/std-cell 全部換成 fast 版；`_max`＝slow 版）交叉 1 個共用 `dtmf_rc_corner`（RC 抽取條件相同，只有 library 角落不同）→ 產生 2 個 delay corner → 搭配同一份 `dtmf.sdc` 的 1 個 constraint mode → 組成 2 個 analysis view：
+
+**setup 用 slow 角（`corner_max`）、hold 用 fast 角（`corner_min`）**，符合 setup 抓最壞情況（慢）、hold 抓最壞情況（快）的物理直覺。
 
 ---
 
