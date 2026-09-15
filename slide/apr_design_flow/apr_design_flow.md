@@ -975,6 +975,19 @@ addMetalFill
 
 ---
 
+## Step 7 補充：Endcap／Boundary Cell 的自動檢查與修復
+
+除了手動下指令插入邊界 cell，EDA 工具通常有一道專門的**規則檢查＋自動修復**流程，確保每一排 standard cell row 的邊界都符合規定：
+
+1. **Check（規則檢查）**：掃過每一排 cell row 的起訖端、以及緊鄰巨集的邊界，確認每個該放 endcap／boundary cell 的位置都有放，沒有遺漏
+2. **Autofix（自動修復）**：檢查到缺漏的地方，工具自動幫你插入正確的 boundary cell，不用逐一手動補
+
+這種「先檢查、有問題自動補」的模式在 EDA 流程裡很常見——前面 Step 6 的 antenna 修復、這一頁的 filler 插入，邏輯上都是同一套：**檢查違規 → 自動或半自動修復**。
+
+> 「tCIC」這個縮寫找不到明確出處確認定義，這裡不硬掰全名。但呼應前一頁：DTMF_CHIP 只看到 `setEndCapMode -boundary_tap false`（關閉功能），沒有真的跑過這類檢查與修復。
+
+---
+
 <!-- _class: lead -->
 
 # Step 8 — Verification
@@ -1021,6 +1034,32 @@ verifyProcessAntenna -reportfile gcd.antenna.rpt -error 1000
 - Standard cell／Net 數：確認 DFM（filler／metal fill）沒有改變邏輯規模，只補了物理填充
 
 > 三項驗證 + timing sign-off **全部通過才算完成**；本案例 hold 幾乎壓線，代表這顆設計如果要再優化，下一步該做 `optDesign -postRoute -hold` 精修那條路徑。完整逐階段指令與數據見 `note/Version4_DTMF_CHIP_Innovus_flow.md`。
+
+---
+
+## Step 8 補充：Sign-off 為什麼要換一套獨立工具？
+
+Sign-off 嚴謹的不只是分析設定（OCV、corner），還包括**換一套獨立的工具重新檢查一次**，不是只信任 P&R 工具自己內建的檢查：
+
+| 項目 | 平時疊代用（P&R 工具內建） | Sign-off 用的獨立工具 |
+|---|---|---|
+| DRC | Innovus `verifyGeometry` | Hercules／Calibre 等專門的 DRC 工具 |
+| Timing（STA） | Innovus `timeDesign` | PrimeTime（業界公認的 sign-off 必選工具） |
+| Crosstalk／SI | P&R 工具內建估算 | Star-RCXT（精確 RC 抽取）＋ PrimeTime-SI |
+
+**為什麼不能只信任同一套工具**：P&R 工具的內建檢查是為了「一邊疊代一邊快速回饋」設計的，難免有簡化——例如 routing 階段的 DRC 用的是簡化的 FRAM view，不是完整電晶體級的 CEL view，可能遺漏問題。換一套**獨立、專門做精確驗證**的工具重新跑一次，才能抓到 P&R 工具自己可能漏掉的地方，這就像考卷不能自己改。
+
+---
+
+## Step 8 補充：Sign-off 檢查項目會隨製程改變
+
+Sign-off 該檢查什麼不是固定清單，會隨**製程節點**變重：
+
+- **180nm**（本簡報 DTMF_CHIP 案例的製程）：可以不用特別考慮 crosstalk
+- **130nm**：crosstalk 變成建議項目（可選）
+- **90nm 以下**：crosstalk 是**簽核階段必須修復**的項目
+
+> 製程越微縮、金屬線間距越窄、單元密度越高，串擾雜訊的影響就越大——這也是為什麼本簡報全程沒有出現 crosstalk sign-off 的討論：180nm 製程還不需要。對照 STA 三階段準確度遞增（合成後 < placement 後 < routing 後），**post-route STA 才是 timing sign-off 的依據**，因為那是唯一用上真實寄生參數與真實時脈樹的一次分析。
 
 ---
 
