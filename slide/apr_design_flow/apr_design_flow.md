@@ -1089,11 +1089,19 @@ Sign-off 該檢查什麼不是固定清單，會隨**製程節點**變重：
 
 **這階段要做什麼：**
 - 設定分析模式（如 `bcwc`：Best-Case Worst-Case，同時看 setup 角與 hold 角）
+- 輸出 **SPEF**（Standard Parasitic Exchange Format）：routing 後真實抽取的寄生電阻/電容，交給 sign-off STA 工具用
 - 輸出 **SDF**（Standard Delay Format）：routing 後真實延遲，供 post-layout gate-level 模擬反標注
 - 輸出 post-APR **網表**、**GDSII** 版圖（送 tapeout）、**LEF abstract**（供上層當巨集用）、Innovus 資料庫存檔
 
+> 對照 `note/STA.md`：`write_sdf` 輸出的 `.sdf` 會被 post-layout testbench 用 `$sdf_annotate` 反標注、跑 gate-level 模擬。
+
+---
+
+## Step 9：匯出指令與實作對照
+
 ```tcl
 setAnalysisMode -analysisType bcwc
+rcOut -spef_file ${TOP_DESIGN}.spef
 write_sdf ... ${TOP_DESIGN}.sdf
 saveNetlist ${TOP_DESIGN}_apr.v
 streamOut ${TOP_DESIGN}.gds -mapFile ... -mode ALL
@@ -1101,9 +1109,19 @@ write_lef_abstract ${TOP_DESIGN}.lef
 saveDesign ${TOP_DESIGN}.enc
 ```
 
-> **註**：`DTMF_CHIP` 180nm 練習案例的 checkpoint 紀錄**止於 `05MetalFill` 收尾與驗證**，並未包含 Step 9 匯出指令 —— 這是課程練習到 sign-off 為止，尚未做最終 tapeout 匯出，此處以 `gcd` 教學範例呈現完整 Step 9 該做的事。
+> **註**：`DTMF_CHIP` 180nm 練習案例的 checkpoint 紀錄**止於 `05MetalFill` 收尾與驗證**，並未包含 Step 9 匯出指令——這是課程練習到 sign-off 為止，尚未做最終 tapeout 匯出，此處以 `gcd` 教學範例呈現完整 Step 9 該做的事。
 
-**銜接下一階段**：`write_sdf` 輸出的 `.sdf` 會被 post-layout testbench 用 `$sdf_annotate` 反標注、跑 gate-level 模擬 —— 詳見 `note/STA.md` 附錄「SDF 反標注與 Post-layout Simulation」。
+---
+
+## Step 9 補充：什麼是 SPEF？
+
+**SPEF（Standard Parasitic Exchange Format）** 記錄的是 routing 完成後，每一條金屬線**實際量到的寄生電阻／電容**——不是估算值，是真的把每段線的幾何形狀、跟旁邊線的耦合電容都抽出來的結果。
+
+**為什麼需要它**：Step 5 提過 STA 準確度隨階段遞增（合成後統計估算 < placement 後估算走線 < routing 後真實寄生參數），**SPEF 就是「routing 後真實寄生參數」的具體檔案**——沒有它，STA 工具只能用估算值猜每條線的延遲；有了它，才能算出最接近實際晶片行為的時序數字。
+
+**跟 Step 8 sign-off 的關聯**：Step 8 提過 sign-off 要換一套獨立工具（Star-RCXT＋PrimeTime-SI）重新驗證——**Star-RCXT 做的事就是產生更精確版本的 SPEF**，再交給 PrimeTime 讀入做最終 timing sign-off，比 P&R 工具自己內建的寄生抽取更準確。
+
+> `rcOut -spef_file DESIGN.spef` 是 Innovus 輸出 SPEF 的指令；輸出後通常會搭配 `write_sdf` 一起用——SPEF 給獨立 STA 工具算時序，SDF 則是把算好的延遲數字包起來給模擬器用。
 
 ---
 
