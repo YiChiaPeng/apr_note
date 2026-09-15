@@ -984,7 +984,7 @@ addMetalFill
 
 這種「先檢查、有問題自動補」的模式在 EDA 流程裡很常見——前面 Step 6 的 antenna 修復、這一頁的 filler 插入，邏輯上都是同一套：**檢查違規 → 自動或半自動修復**。
 
-> 「tCIC」這個縮寫找不到明確出處確認定義，這裡不硬掰全名。但呼應前一頁：DTMF_CHIP 只看到 `setEndCapMode -boundary_tap false`（關閉功能），沒有真的跑過這類檢查與修復。
+> **tCIC＝TSMC 提供的 pre-checker**（設計規則預檢工具，詳見 Step 8 補充）——這類代工廠輕量版 DRC 工具通常也涵蓋 endcap／boundary cell 規則，可以邊做邊跑。呼應前一頁：DTMF_CHIP 只看到 `setEndCapMode -boundary_tap false`（關閉功能），沒有真的跑過這類檢查與修復。
 
 ---
 
@@ -1048,6 +1048,22 @@ Sign-off 嚴謹的不只是分析設定（OCV、corner），還包括**換一套
 | Crosstalk／SI | P&R 工具內建估算 | Star-RCXT（精確 RC 抽取）＋ PrimeTime-SI |
 
 **為什麼不能只信任同一套工具**：P&R 工具的內建檢查是為了「一邊疊代一邊快速回饋」設計的，難免有簡化——例如 routing 階段的 DRC 用的是簡化的 FRAM view，不是完整電晶體級的 CEL view，可能遺漏問題。換一套**獨立、專門做精確驗證**的工具重新跑一次，才能抓到 P&R 工具自己可能漏掉的地方，這就像考卷不能自己改。
+
+---
+
+## Step 8 補充：Sign-off 前還有一關——Foundry Pre-checker
+
+實務上驗證不是只有「P&R 內建」跟「獨立 sign-off」兩級，中間通常還有代工廠提供的**輕量版預檢工具**：
+
+```
+P&R 工具內建檢查  →  Foundry Pre-checker（如 TSMC 的 tCIC）  →  完整 Sign-off（Hercules／Calibre）
+（最快，較粗略）        （較快，用代工廠真實規則跑一輪）              （最慢，最完整最準確）
+```
+
+- **為什麼需要中間這一關**：完整 sign-off DRC 跑一次可能要幾小時到幾天，設計還在疊代時不可能每改一次就跑一次；但只信任 P&R 工具自己的估算，又怕漏掉代工廠真正在意的規則
+- **Pre-checker 的角色**：用代工廠提供的真實 design rule，跑一個比完整 sign-off 快很多的子集檢查，設計過程中可以常常跑，及早抓到問題（例如 endcap／boundary cell 有沒有正確插入），送完整 sign-off 時才不會一次冒出一堆違規
+
+> **tCIC＝TSMC 提供的 pre-checker**，用來預先跑一輪設計規則檢查（包含 endcap／boundary cell 這類規則）並支援 autofix——就是這裡說的「中間那一關」，不用每次都跑完整、耗時的 Hercules／Calibre 才知道有沒有違規。
 
 ---
 
