@@ -645,6 +645,28 @@ clk_tree.inn   （placement 剛做完，CTS spec 還沒建）
 
 ---
 
+## Step 5 補充：什麼是 DRV？
+
+**DRV（Design Rule Violation）** 跟 Step 8 的幾何 **DRC** 不一樣——DRV 是**電性**上的違規，主要三種：
+
+- **Max transition**：訊號從 0→1／1→0 切換得太慢（波形太「鬆軟」）
+- **Max capacitance**：一顆 cell 驅動的負載電容超過它的驅動能力
+- **Max fanout**：一顆 cell 驅動的下游接腳數量太多
+
+**為什麼 CTS 特別容易踩到**：時脈源要一路分支、驅動全晶片**上千顆暫存器**，是全設計裡 fanout 最誇張的網路，電容／fanout 特別容易爆表。
+
+---
+
+## Step 5 補充：CTS 怎麼處理 DRV？
+
+轉態變慢不只拖慢時序，還會讓 library 裡的時序數字失真（cell 本來只在 max transition 範圍內才有精確特性資料），連帶影響 skew／hold 判斷。
+
+**`ccopt_design` 除了平衡 skew，也同時在修 DRV**：自動調整 buffer 尺寸、插入額外緩衝級，把每段 clock net 的轉態時間與負載壓回規格內。
+
+> **DTMF_CHIP 真實證據**：CTS 階段反覆呼叫 `timeDesign -postCTS -pathReports -drvReports -slackReports`——`-drvReports` 就是**專門把 DRV 違規（max cap／max tran／max fanout）另外拉出來一份報告**，跟 `-slackReports`（時序）、`-pathReports`（路徑）分開看，是 CTS 收斂時例行要檢查的獨立項目。
+
+---
+
 ## Step 5：CTS 檢查清單
 
 - [ ] Buffer/inverter cell list 是否符合製程建議（避免用到不該用的高驅動力 cell）
