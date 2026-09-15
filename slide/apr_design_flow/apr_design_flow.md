@@ -1107,6 +1107,55 @@ saveDesign ${TOP_DESIGN}.enc
 
 ---
 
+## 總結：STA ↔ ECO ↔ APR 的收斂循環 🔄
+
+後端設計不是「做完就結束」，而是一直在跑這個循環，直到所有違規清零：
+
+```
+   ① STA（跑時序分析）
+   找出 setup／hold／DRV 違規路徑
+            │
+            ▼
+   ② Tweaker ECO（局部微調修正）
+   downsize／upsize、插 buffer、微調 routing
+            │
+            ▼
+   ③ APR 落實改動
+   legalize placement、route_zrt_eco
+   （只動受影響的局部，其他已收斂部分不碰）
+            │
+            ▼
+   再跑 STA 驗證 ──── 還有違規？──▶ 回到 ①
+            │
+           沒有了
+            ▼
+          收斂完成
+```
+
+---
+
+## 循環裡每一步在做什麼
+
+- **① STA**：檢查目前設計時序有沒有違規（Step 5 補充的 DRV、Step 8 的 sign-off 都是這一步）
+- **② Tweaker ECO**：不重跑整個階段，只對違規路徑做**最小幅度**的局部微調（downsize／upsize、插 buffer、微調 routing）——Step 6 的 `ecoChangeCell -downsize` 就是實例
+- **③ APR 落實改動**：把 ECO 的改動實際做進版圖，只 legalize／重繞受影響的局部區域（`legalize_placement -eco`、`route_zrt_eco`），已經收斂的其他部分完全不受影響
+- **回到 STA 驗證**：確認剛剛的修正真的解決問題，也沒有引入新的違規——還有問題就回到 ①，直到清零
+
+---
+
+## 為什麼這個循環貫穿整份簡報
+
+本簡報看過的每一次疊代，本質上都是這個循環的實例：
+
+- Placement 反覆跑 **5 輪**才收斂
+- CTS 拆成好幾個 checkpoint，事後還回頭做 by-item 微調
+- Routing 的 `routeDesign` 呼叫了 **103 次**、`verifyProcessAntenna` 呼叫 **27 次**
+- SPI_INST 那批 **16 顆暫存器**的 downsize ECO，正是熱點分析後的 Tweaker ECO
+
+**核心心法**：跑分析 → 找問題 → 局部修正 → 再驗證，不斷重複——這就是第一頁「RTL-to-GDS 九大步驟」結尾那句「做完 → 檢查 → 不合格就疊代重做」的具體樣貌。
+
+---
+
 <!-- _class: lead -->
 
 # 動手練習：驗證你真的懂了
