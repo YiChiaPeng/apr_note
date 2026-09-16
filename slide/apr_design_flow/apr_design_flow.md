@@ -1357,6 +1357,26 @@ set_analysis_view -setup {dtmf_view_setup} -hold {dtmf_view_hold}
 
 ---
 
+## 進階補充：Cadence 的授權（License）機制
+
+在真正下第一個指令之前，Innovus 其實要先跟**授權伺服器**（license server）要到一張「使用權」，才能真的啟動：
+
+- Cadence（以及大部分 EDA 廠商）用的是 **feature-based** 授權：不是「買一套 Innovus 就什麼都能用」，而是每個功能模組（Innovus 基礎版、CCOpt 時脈樹合成、Quantus 寄生抽取、CeltIC 訊號完整性⋯）各自對應一張獨立的授權 **feature token**
+- 啟動工具、或用到某個進階功能時，工具即時跟 license server**要（checkout）**一張對應 token；工具關掉或功能用完才**還（release）**
+- 環境變數 `CDS_LIC_FILE`（或 `LM_LICENSE_FILE`）指向公司內部的授權伺服器位置
+
+---
+
+## 進階補充：為什麼授權機制值得在意
+
+- 授權通常是**浮動式（floating）**——公司買固定數量的 token，多人共用，token 用完後別人就得排隊，不是每人都能同時跑
+- EDA 授權**非常昂貴**（一張進階 P&R／訊號完整性授權一年可能要價數萬到數十萬美金），公司會嚴格控管使用率，決定要不要加買
+- 常見狀況：尖峰時段大家都在跑 CTS／routing，某個進階功能的 token 被別人占用，工具會卡住等待、甚至直接報錯拿不到授權——這不是設計錯誤，是資源排隊問題
+
+> `gcd`／`DTMF_CHIP` 的指令歷史裡看不到授權相關訊息（`inn.cmd.gz` 只記錄下過的 Tcl 指令，不含 license checkout 的系統訊息），但這是每次啟動 Innovus 都會在背景真實發生的一步。
+
+---
+
 <!-- _class: lead -->
 
 # 參考資料
