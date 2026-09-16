@@ -696,6 +696,47 @@ clk_tree.inn   （placement 剛做完，CTS spec 還沒建）
 
 ---
 
+## Step 5 補充：從 .sdc 到 Clock Tree 的資料流
+
+```
+.sdc（create_clock 定義時脈週期／來源）
+      │
+      ▼
+set_ccopt_property（指定可用的 buffer／inverter cell）
+      │
+      ▼
+create_ccopt_clock_tree_spec
+      │
+      ▼
+   CTS Spec（描述怎麼蓋這棵時脈樹）
+   ├─ Clock：每個時脈各自的目標 skew／latency、可用 cell
+   └─ Skew Group：特定暫存器/分支要求更嚴格的相對 skew，額外分組管理
+      │
+      ▼
+ccopt_design（照著 spec 實際蓋樹、做最佳化）
+      │
+      ▼
+存進 Innovus 內部資料庫（clock tree ／ skew group 各自存檔）
+```
+
+---
+
+## Step 5 補充：Spec 裡的 Clock 跟 Skew Group
+
+- **.sdc**：只描述「這個時脈週期多長、從哪來」，不管實體怎麼實現
+- **CTS Spec**：把 .sdc 的時脈意圖轉譯成「用什麼 cell、怎麼分組、允許多少 skew」的具體蓋樹規則
+- **Skew Group**：不是所有暫存器都套用同一個 skew 目標——關聯緊密的一群暫存器（例如同一條資料通路）會被獨立分組，要求彼此之間的 skew 比全域目標更緊
+
+---
+
+## Step 5 補充：Spec 跟 .db 是什麼關係？
+
+`ccopt_design` 照著 spec 蓋完樹之後，**時脈樹結構**跟**每個 skew group 的分組結果**不是只存在記憶體裡算完就丟——會被存進 Innovus 內部的二進位資料庫，讓 checkpoint 存/取時不用重新計算。
+
+> **真實證據**：DTMF_CHIP 的 `CTS/02CTS.inn.dat/ccopt/` 資料夾裡，真的有 `clock_trees.bin` 跟 `skew_groups.bin` 兩個獨立檔案——證實 Innovus 把「時脈樹結構」跟「skew group 分組結果」分開存成內部資料庫檔案，`saveDesign`／`restoreDesign` 時直接讀寫這些檔案，不用每次都重跑一次 CTS 合成。
+
+---
+
 ## Step 5 補充：什麼是 DRV？
 
 **DRV（Design Rule Violation）** 跟 Step 8 的幾何 **DRC** 不一樣——DRV 是**電性**上的違規，主要三種：
