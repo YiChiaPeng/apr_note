@@ -966,6 +966,41 @@ verifyProcessAntenna -report DTMF_CHIP.antenna.rpt -error 1000
 
 <!-- _class: lead -->
 
+# 🔍 Step 6 進階補充：SI／NDR（可視時間彈性簡報）
+
+---
+
+## Step 6 補充：什麼是 SI／Crosstalk？
+
+**SI（Signal Integrity，訊號完整性）**關心的是「訊號波形有沒有被搞髒」，其中最常見的問題是**串擾（crosstalk）**：兩條平行走線靠太近，中間有寄生耦合電容／電感，一條線的訊號變化會透過耦合「跳」到旁邊那條線：
+
+- **靜態受害**：旁邊那條線本來沒在動，卻被感應出一個毛刺（glitch），可能被誤判成邏輯訊號
+- **動態受害**：旁邊那條線剛好也在變化，訊號被加速或延遲，實際延遲跟算出來的不一樣
+
+**為什麼越來越重要**：製程越微縮、線距越窄、單元密度越高，串擾影響越大——180nm 可以不太管，130nm 選做，**90nm 以下 sign-off 必須修**（呼應 Step 8 補充過的製程門檻）。
+
+> `gcd` 範例乾脆關掉 SI 驅動 routing（`-routeWithSiDriven false`）求簡化；DTMF_CHIP 真實案例在不同輪次間**開關切換**（`true`／`false`／`1` 都出現過），代表實務上大多數時候會打開，只是某些疊代階段為了先求繞通而暫時關閉。
+
+---
+
+## Step 6 補充：NDR 怎麼防串擾？
+
+**NDR（Non-Default Routing rule，非預設走線規則）**：讓特定幾條網路不套用製程預設的走線寬度／間距，改用客製化規則——最常用在**時脈訊號**上：
+
+- **加寬線寬**：降低走線電阻、減少 RC 延遲，讓 skew 更容易控制
+- **加大線距**：拉開跟旁邊訊號線的距離，直接降低耦合電容，減少串擾
+
+```tcl
+define_routing_rule my_ndr -spacings {...} -widths {...}
+set_clock_tree_options -routing_rule my_ndr    ;# CTS 階段套用到時脈網路
+```
+
+**為什麼時脈網路優先套用**：時脈是全晶片翻轉率最高、扇出最大、時序最敏感的訊號（呼應 Step 5 的 DRV 概念），最怕被鄰居串擾干擾到 skew，業界慣例是先把 NDR 規則套在時脈樹上，一般訊號線才維持預設規則。
+
+---
+
+<!-- _class: lead -->
+
 # 🔍 Step 6 進階補充：Antenna／ECO／Spare Cell（可視時間彈性簡報）
 
 ---
