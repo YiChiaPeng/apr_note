@@ -35,8 +35,10 @@ style: |
 4. 逐步驟詳解（含示意圖）：Design Import → Floorplan → Power Planning → Placement → CTS → Routing → DFM → Verification → Data Export
 5. 動手練習：如何用 checkpoint 驗證自己真的理解每個階段
 6. 各階段檢查清單總表
-7. 進階補充：MMMC／OCV 設定（可跳過）
+7. 進階補充：EDA 工具與授權機制（可跳過）
 
+> 每個 Step 講完核心流程後，會接一段標示「🔍 進階補充」的深挖內容——時間夠再講，時間不夠可以直接跳過。
+>
 > 資料來源：`note/floorplan.md`、`note/placement.md`、`note/routing.md`、`note/STA.md`、`reference_design/gcd/`、`reference_design/180um/Version4`
 
 ---
@@ -157,7 +159,67 @@ loadConfig ../design_data/${TOP_DESIGN}.conf 1
 ```
 `gcd.conf` 一次集中定義了 netlist、SDC、LEF、IO 檔、MMMC view 檔與 floorplan 預設參數；`gcd.view` 用 `create_library_set`／`create_analysis_view` 建立 slow.lib(setup 角)／fast.lib(hold 角) 的 MMMC 設定。
 
-> DTMF_CHIP 實際用的完整 MMMC corner／OCV 設定較深入，整理在簡報最後「進階補充」章節。
+> DTMF_CHIP 實際用的完整 MMMC corner／OCV 設定較深入，下面幾頁補充。
+
+---
+
+<!-- _class: lead -->
+
+# 🔍 Step 1 進階補充（可視時間彈性簡報）
+
+---
+
+## Step 1 補充：DTMF_CHIP 的真實 MMMC 設定
+
+`gcd` 只用兩個 `.lib` 檔做示範；`reference_design/180um/` 的 checkpoint（`viewDefinition.tcl`）還原出一套完整的 corner-based MMMC：
+
+```tcl
+create_library_set -name dtmf_libs_min -timing {pllclk_fast.lib ram_128x16A_fast_syn.lib
+    rom_512x16A_fast_syn.lib ram_256x16A_fast_syn.lib fast.lib tpz973gbc-lite_fast.lib} -si {fast.cdb}
+create_library_set -name dtmf_libs_max -timing {pllclk_slow.lib ram_128x16A_slow_syn.lib
+    ram_256x16A_slow_syn.lib rom_512x16A_slow_syn.lib slow.lib tpz973gwc-lite_slow.lib} -si {slow.cdb}
+
+create_rc_corner -name dtmf_rc_corner -cap_table t018s6mlv.capTbl -qx_tech_file t018s6mm.tch \
+    -preRoute_res 1 -postRoute_res 1 -preRoute_cap 1 -postRoute_cap 1 -postRoute_xcap 1
+
+create_delay_corner -name dtmf_corner_min -library_set dtmf_libs_min -rc_corner dtmf_rc_corner
+create_delay_corner -name dtmf_corner_max -library_set dtmf_libs_max -rc_corner dtmf_rc_corner
+
+create_constraint_mode -name common -sdc_files {dtmf.sdc}
+create_analysis_view -name dtmf_view_setup -constraint_mode common -delay_corner dtmf_corner_max
+create_analysis_view -name dtmf_view_hold  -constraint_mode common -delay_corner dtmf_corner_min
+set_analysis_view -setup {dtmf_view_setup} -hold {dtmf_view_hold}
+```
+
+---
+
+## Step 1 補充：MMMC 結構拆解
+
+2 組 library set（`_min`＝fast 製程角，含 PLL/RAM/ROM/std-cell 全部換成 fast 版；`_max`＝slow 版）交叉 1 個共用 `dtmf_rc_corner`（RC 抽取條件相同，只有 library 角落不同）→ 產生 2 個 delay corner → 搭配同一份 `dtmf.sdc` 的 1 個 constraint mode → 組成 2 個 analysis view：
+
+**setup 用 slow 角（`corner_max`）、hold 用 fast 角（`corner_min`）**，符合 setup 抓最壞情況（慢）、hold 抓最壞情況（快）的物理直覺。
+
+---
+
+## Step 1 補充：MMMC 設定一次建立、全程沿用
+
+比對 `Floorplan/01Floorplan_set` 與最終 `Route/05MetalFill` 兩個 checkpoint 的 `viewDefinition.tcl`：**完全相同**（僅多一行 GUI 用的 `set_interactive_constraint_mode`）。`Version5`（同設計的另一次練習）也是一字不差的同一套 MMMC。
+
+**意義**：MMMC 的 corner／view 設定是跟著**製程與設計**綁定的，在 Design Import 階段建立一次之後，Floorplan → Placement → CTS → Route 全程都重複使用同一套視角，**不會**每個階段重建；不同 checkpoint 之間唯一會變的是「用哪個 view 做檢查」與「有沒有開額外的分析模式」（下一頁）。
+
+---
+
+## Step 1 補充：跑到哪個階段才切換分析模式？
+
+從各階段 `inn.cmd.gz` 指令歷史比對 `setAnalysisMode` 的使用時機：
+
+| 階段 | 指令 | 意義 |
+|---|---|---|
+| CTS（`03CCOPT` 起） | `setAnalysisMode -checkType setup` / `-checkType hold` | 交替切換 `timeDesign` 要看哪一種違規 |
+| **Route（`01Route` 起，CTS/Placement 都沒有）** | `setAnalysisMode -analysisType onChipVariation` | **首次開啟 OCV（On-Chip Variation）derate 分析** |
+| Route（`05MetalFill` 收尾） | `set locv_inter_clock_use_worst_derate false` | 微調 LOCV（Location-based OCV）跨時脈 derate 策略 |
+
+**重點**：OCV 分析在 Placement／CTS 階段**沒有**打開，一路到 **Route 才第一次啟用**——實務上前段用單純 corner-based 分析先求快速收斂，等進入 routing、時序數字接近最終、才切換到較嚴格（也較耗時）的 OCV derate 分析做 sign-off 等級的檢查，呼應 Step 8 `05MetalFill` 最終驗證用的就是這套 OCV 設定下的時序結果。
 
 ---
 
@@ -217,6 +279,12 @@ floorPlan -r 1 0.7 5 5 5 5
 floorPlan -site tsm3site -r 0.75 0.702385 100.94 100.44 100.32 100.24
 ```
 高寬比 0.75、utilization ≈70.2%、core 到 IO 四邊約 100μm —— 學生**先試算一次**（`-r 0.73 0.7 100 100 100 100`）**再定案**，可見 floorplan 尺寸不是一次到位，通常會先抓大概數字、看後面 placement/routing 結果再調整。
+
+---
+
+<!-- _class: lead -->
+
+# 🔍 Step 2 進階補充（可視時間彈性簡報）
 
 ---
 
@@ -342,40 +410,6 @@ Halo 概念上分兩種用途，只是不同工具的實作方式不太一樣：
 
 ---
 
-## Step 3 補充：金屬層 M0–M8 是什麼
-
-上面的 ring／stripe／rail 其實都是**選在不同的金屬層**上做的。晶片內部是一層一層疊上去的金屬導線，由下往上大致長這樣（側視／剖面）：
-
-```
-M8  ██████████████████████████  ← 最上層：全晶片級電源網格 / 很長距離的訊號（線最粗、電阻最小）
-M7  ██████████████████████████
-M6  ▓▓▓▓   ▓▓▓▓   ▓▓▓▓   ▓▓▓▓   ← DTMF_CHIP：Power Ring/Stripe（垂直）
-M5  ▓▓▓▓   ▓▓▓▓   ▓▓▓▓   ▓▓▓▓   ← DTMF_CHIP：Power Ring/Stripe（水平）
-M4  ─ ─ ─  訊號 routing（中／長距離）─ ─ ─
-M3  ─ ─ ─  訊號 routing  ─ ─ ─
-M2  ─ ─ ─  訊號 routing（cell 之間短距離連線）─ ─ ─
-M1  ══════ Standard cell 電源軌（rail）＋短距離訊號 ══════          （線最細、電阻最大）
-M0  ▮▮▮ 顆粒最細的 local interconnect（只有先進製程才有）▮▮▮
-     ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-              [ 電晶體／Standard cell 本體 ]
-```
-
-- **由下往上**：線越細、間距（pitch）越小 → 越適合精密的短距離連線，但電阻大；線越粗、間距越大 → 電阻小、能承受大電流，適合長距離走線與電源
-- **M0**：只有較先進製程（通常 <45nm）才會有的「local interconnect」層，專門把電晶體接到 M1；**180nm 這種較舊製程通常沒有 M0**，電晶體直接由 M1 接出
-- **M1**：幾乎所有製程共通的最下層通用走線層，standard cell 的電源 rail、同排 cell 間短距離訊號都在這層
-
----
-
-## Step 3 補充：中高層金屬實際怎麼用
-
-- **M2–M4（中層）**：cell 之間、跨 row 的訊號 routing 主力——DTMF_CHIP 最終總繞線長 320,640μm **全部落在 M1–M4**
-- **M5–M6（次上層）**：線較粗、電阻較小，DTMF_CHIP 拿來做 Power Ring／Stripe；`gcd` 案例則是把 core ring 放在 M4/M5
-- **M7–M8（最上層）**：層數更多的製程才會用到，通常給全晶片級電源網格或很長的 global 訊號
-
-**金屬層數是製程決定的，不是每個設計都用到全部**：`gcd` 使用的 90nm 製程實際上支援到 **M9**（`addMetalFill -layer {M1...M9}`、via 可以跨到 M8），但因為電路太小，實際只用了 M1/M4/M5；DTMF_CHIP 的 180nm 製程整個流程最高只用到 **M6**——製程給的層數是上限，設計用多少層看複雜度與供電需求。
-
----
-
 ## Step 3：Power Planning — `gcd` 範例
 
 ```tcl
@@ -412,6 +446,46 @@ sroute -connect {blockPin padPin padRing corePin floatingStripe} \
 verifyConnectivity -type all -error 1000 -warning 50   ;# 確認電源網路乾淨
 ```
 真實案例除了 core ring，**巨集**也額外加了一圈 ring，並用多條 stripe 補密度，比 `gcd` 範例複雜得多。
+
+---
+
+<!-- _class: lead -->
+
+# 🔍 Step 3 進階補充（可視時間彈性簡報）
+
+---
+
+## Step 3 補充：金屬層 M0–M8 是什麼
+
+前面的 ring／stripe／rail 其實都是**選在不同的金屬層**上做的。晶片內部是一層一層疊上去的金屬導線，由下往上大致長這樣（側視／剖面）：
+
+```
+M8  ██████████████████████████  ← 最上層：全晶片級電源網格 / 很長距離的訊號（線最粗、電阻最小）
+M7  ██████████████████████████
+M6  ▓▓▓▓   ▓▓▓▓   ▓▓▓▓   ▓▓▓▓   ← DTMF_CHIP：Power Ring/Stripe（垂直）
+M5  ▓▓▓▓   ▓▓▓▓   ▓▓▓▓   ▓▓▓▓   ← DTMF_CHIP：Power Ring/Stripe（水平）
+M4  ─ ─ ─  訊號 routing（中／長距離）─ ─ ─
+M3  ─ ─ ─  訊號 routing  ─ ─ ─
+M2  ─ ─ ─  訊號 routing（cell 之間短距離連線）─ ─ ─
+M1  ══════ Standard cell 電源軌（rail）＋短距離訊號 ══════          （線最細、電阻最大）
+M0  ▮▮▮ 顆粒最細的 local interconnect（只有先進製程才有）▮▮▮
+     ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+              [ 電晶體／Standard cell 本體 ]
+```
+
+- **由下往上**：線越細、間距（pitch）越小 → 越適合精密的短距離連線，但電阻大；線越粗、間距越大 → 電阻小、能承受大電流，適合長距離走線與電源
+- **M0**：只有較先進製程（通常 <45nm）才會有的「local interconnect」層，專門把電晶體接到 M1；**180nm 這種較舊製程通常沒有 M0**，電晶體直接由 M1 接出
+- **M1**：幾乎所有製程共通的最下層通用走線層，standard cell 的電源 rail、同排 cell 間短距離訊號都在這層
+
+---
+
+## Step 3 補充：中高層金屬實際怎麼用
+
+- **M2–M4（中層）**：cell 之間、跨 row 的訊號 routing 主力——DTMF_CHIP 最終總繞線長 320,640μm **全部落在 M1–M4**（前一頁已展示的 DTMF_CHIP 實際案例）
+- **M5–M6（次上層）**：線較粗、電阻較小，DTMF_CHIP 拿來做 Power Ring／Stripe；`gcd` 案例則是把 core ring 放在 M4/M5
+- **M7–M8（最上層）**：層數更多的製程才會用到，通常給全晶片級電源網格或很長的 global 訊號
+
+**金屬層數是製程決定的，不是每個設計都用到全部**：`gcd` 使用的 90nm 製程實際上支援到 **M9**（`addMetalFill -layer {M1...M9}`、via 可以跨到 M8），但因為電路太小，實際只用了 M1/M4/M5；DTMF_CHIP 的 180nm 製程整個流程最高只用到 **M6**——製程給的層數是上限，設計用多少層看複雜度與供電需求。
 
 ---
 
@@ -510,6 +584,12 @@ place_opt_design       ;# 反覆執行 5 輪才收斂
 | DRC（`verifyGeometry`） | 0 違規，乾淨 |
 
 **真實案例比教學範例多做的事**：先匯入 scan chain DEF、指定兩條 scan chain 起訖點，並用 `place_opt_design` 反覆跑 **5 輪**才收斂 —— 教學範例只跑一次是因為電路太小、沒有真實收斂壓力。
+
+---
+
+<!-- _class: lead -->
+
+# 🔍 Step 4 進階補充（可視時間彈性簡報）
 
 ---
 
@@ -696,6 +776,12 @@ clk_tree.inn   （placement 剛做完，CTS spec 還沒建）
 
 ---
 
+<!-- _class: lead -->
+
+# 🔍 Step 5 進階補充（可視時間彈性簡報）
+
+---
+
 ## Step 5 補充：從 .sdc 到 Clock Tree 的資料流
 
 ```
@@ -812,6 +898,12 @@ Detail Routing（在格子裡把每條線精確的金屬線路徑、via 都畫�
 
 ---
 
+<!-- _class: lead -->
+
+# 🔍 Step 6 進階補充：Congestion（可視時間彈性簡報）
+
+---
+
 ## Step 6 補充：Horizontal Congestion vs Vertical Congestion
 
 Congestion 不是單一數字，而是**分方向、分金屬層**算的：
@@ -869,6 +961,12 @@ verifyProcessAntenna -report DTMF_CHIP.antenna.rpt -error 1000
 `routeDesign` 103 次＋`verifyConnectivity` 74 次＋`verifyProcessAntenna` 27 次，三個數字加總說明 Routing 階段的本質就是「繞線 → 檢查 → 再繞線」不斷疊代，而非一次執行到位。
 
 **分支插曲**：11/2 第一次繞完線後手動修 DRC 到 `02Fix_done`，但學生後來回頭多做一輪 CTS 微調（Step 5 的 `04ByitemCCOPT_1103`），**重新繞線**、直接跳過 `02Fix_done`，走向更乾淨的 `03Byitemopt_routing → 04Antenna` —— 代表 `02Fix_done` 是被放棄的舊嘗試，**真實流程經常需要回頭重做前面階段**,不是嚴格單向。
+
+---
+
+<!-- _class: lead -->
+
+# 🔍 Step 6 進階補充：Antenna／ECO／Spare Cell（可視時間彈性簡報）
 
 ---
 
@@ -1015,6 +1113,12 @@ addMetalFill
 
 ---
 
+<!-- _class: lead -->
+
+# 🔍 Step 7 進階補充（可視時間彈性簡報）
+
+---
+
 ## Step 7 補充：為什麼要放這些「非邏輯」cell？
 
 除了做邏輯功能的 standard cell，APR 過程還會插入好幾種**沒有邏輯功能**、純粹為了製程／電性可靠度而加的特殊 cell：
@@ -1105,6 +1209,12 @@ verifyProcessAntenna -reportfile gcd.antenna.rpt -error 1000
 
 ---
 
+<!-- _class: lead -->
+
+# 🔍 Step 8 進階補充（可視時間彈性簡報）
+
+---
+
 ## Step 8 補充：Sign-off 為什麼要換一套獨立工具？
 
 Sign-off 嚴謹的不只是分析設定（OCV、corner），還包括**換一套獨立的工具重新檢查一次**，不是只信任 P&R 工具自己內建的檢查：
@@ -1192,6 +1302,12 @@ saveDesign ${TOP_DESIGN}.enc
 ```
 
 > **註**：`DTMF_CHIP` 180nm 練習案例的 checkpoint 紀錄**止於 `05MetalFill` 收尾與驗證**，並未包含 Step 9 匯出指令——這是課程練習到 sign-off 為止，尚未做最終 tapeout 匯出，此處以 `gcd` 教學範例呈現完整 Step 9 該做的事。
+
+---
+
+<!-- _class: lead -->
+
+# 🔍 Step 9 進階補充（可視時間彈性簡報）
 
 ---
 
@@ -1299,61 +1415,7 @@ saveDesign ${TOP_DESIGN}.enc
 
 <!-- _class: lead -->
 
-# 進階補充：MMMC／OCV 設定（可跳過）
-
----
-
-## Step 1 補充：DTMF_CHIP 的真實 MMMC 設定
-
-`gcd` 只用兩個 `.lib` 檔做示範；`reference_design/180um/` 的 checkpoint（`viewDefinition.tcl`）還原出一套完整的 corner-based MMMC：
-
-```tcl
-create_library_set -name dtmf_libs_min -timing {pllclk_fast.lib ram_128x16A_fast_syn.lib
-    rom_512x16A_fast_syn.lib ram_256x16A_fast_syn.lib fast.lib tpz973gbc-lite_fast.lib} -si {fast.cdb}
-create_library_set -name dtmf_libs_max -timing {pllclk_slow.lib ram_128x16A_slow_syn.lib
-    ram_256x16A_slow_syn.lib rom_512x16A_slow_syn.lib slow.lib tpz973gwc-lite_slow.lib} -si {slow.cdb}
-
-create_rc_corner -name dtmf_rc_corner -cap_table t018s6mlv.capTbl -qx_tech_file t018s6mm.tch \
-    -preRoute_res 1 -postRoute_res 1 -preRoute_cap 1 -postRoute_cap 1 -postRoute_xcap 1
-
-create_delay_corner -name dtmf_corner_min -library_set dtmf_libs_min -rc_corner dtmf_rc_corner
-create_delay_corner -name dtmf_corner_max -library_set dtmf_libs_max -rc_corner dtmf_rc_corner
-
-create_constraint_mode -name common -sdc_files {dtmf.sdc}
-create_analysis_view -name dtmf_view_setup -constraint_mode common -delay_corner dtmf_corner_max
-create_analysis_view -name dtmf_view_hold  -constraint_mode common -delay_corner dtmf_corner_min
-set_analysis_view -setup {dtmf_view_setup} -hold {dtmf_view_hold}
-```
-
----
-
-## Step 1 補充：MMMC 結構拆解
-
-2 組 library set（`_min`＝fast 製程角，含 PLL/RAM/ROM/std-cell 全部換成 fast 版；`_max`＝slow 版）交叉 1 個共用 `dtmf_rc_corner`（RC 抽取條件相同，只有 library 角落不同）→ 產生 2 個 delay corner → 搭配同一份 `dtmf.sdc` 的 1 個 constraint mode → 組成 2 個 analysis view：
-
-**setup 用 slow 角（`corner_max`）、hold 用 fast 角（`corner_min`）**，符合 setup 抓最壞情況（慢）、hold 抓最壞情況（快）的物理直覺。
-
----
-
-## Step 1 補充：MMMC 設定一次建立、全程沿用
-
-比對 `Floorplan/01Floorplan_set` 與最終 `Route/05MetalFill` 兩個 checkpoint 的 `viewDefinition.tcl`：**完全相同**（僅多一行 GUI 用的 `set_interactive_constraint_mode`）。`Version5`（同設計的另一次練習）也是一字不差的同一套 MMMC。
-
-**意義**：MMMC 的 corner／view 設定是跟著**製程與設計**綁定的，在 Design Import 階段建立一次之後，Floorplan → Placement → CTS → Route 全程都重複使用同一套視角，**不會**每個階段重建；不同 checkpoint 之間唯一會變的是「用哪個 view 做檢查」與「有沒有開額外的分析模式」（下一頁）。
-
----
-
-## Step 1 補充：跑到哪個階段才切換分析模式？
-
-從各階段 `inn.cmd.gz` 指令歷史比對 `setAnalysisMode` 的使用時機：
-
-| 階段 | 指令 | 意義 |
-|---|---|---|
-| CTS（`03CCOPT` 起） | `setAnalysisMode -checkType setup` / `-checkType hold` | 交替切換 `timeDesign` 要看哪一種違規 |
-| **Route（`01Route` 起，CTS/Placement 都沒有）** | `setAnalysisMode -analysisType onChipVariation` | **首次開啟 OCV（On-Chip Variation）derate 分析** |
-| Route（`05MetalFill` 收尾） | `set locv_inter_clock_use_worst_derate false` | 微調 LOCV（Location-based OCV）跨時脈 derate 策略 |
-
-**重點**：OCV 分析在 Placement／CTS 階段**沒有**打開，一路到 **Route 才第一次啟用**——實務上前段用單純 corner-based 分析先求快速收斂，等進入 routing、時序數字接近最終、才切換到較嚴格（也較耗時）的 OCV derate 分析做 sign-off 等級的檢查，呼應 Step 8 `05MetalFill` 最終驗證用的就是這套 OCV 設定下的時序結果。
+# 進階補充：EDA 工具與授權機制
 
 ---
 
