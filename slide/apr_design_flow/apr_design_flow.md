@@ -558,6 +558,33 @@ set power_default_toggle_rate 0.003                 ;# 其餘訊號用預設值
 
 ---
 
+## Step 4 補充：Power Switch Cell 怎麼運作？
+
+UPF 提到的 Power Switch，實際上是插在「真實電源」與「虛擬電源」之間的一顆電晶體開關，用來實現**功率閘控（power gating）**——不用的模組直接斷電，消滅動態功耗、大幅降低漏電：
+
+- **Header switch**：PMOS，接在真實 VDD 與電路的虛擬 VDD（VVDD）之間
+- **Footer switch**：NMOS，接在真實 GND 與電路的虛擬 GND（VVSS）之間
+- 開關本身要用**高 Vt** 電晶體——因為開關要長時間保持通／斷狀態，高 Vt 能降低開關自己的漏電流
+- 實務上 **footer 用得比 header 多**：面積較小、驅動能力較強
+
+> Power Switch、Isolation Cell、Retention Register 這三種都屬於「**always-on**」邏輯——本身絕對不能被關斷電源，liberty 裡會標記 `always-on: true`，且通常有主／備兩組電源接腳確保一直有電。
+
+---
+
+## Step 4 補充：精細粒度 vs 粗粒度功率閘控
+
+| | 精細粒度（Fine-grain） | 粗粒度（Coarse-grain） |
+|---|---|---|
+| 開關位置 | 內建在**每一顆** standard cell 裡 | 獨立開關 cell，多顆邏輯閘共用一組 |
+| 面積代價 | 增加 1×～3× | 較省面積 |
+| 優點 | IR drop 控制更精細 | 對製程／電壓／溫度差異較不敏感，成本較低 |
+| 難點 | 全域 sleep 控制訊號的驅動與 routing | 要控制好開機瞬間的衝擊電流（rush current）與 IR drop |
+| 常見程度 | 較少見 | **業界較常採用** |
+
+**開關尺寸的取捨**：開關 cell 越大，穩態時電壓降越小，但開機瞬間的 rush current 也越大——`add_header_footer_cell_array` 可以把開關均勻分布在整個電壓域內，降低區域內的電壓降差異。
+
+---
+
 ## Step 4 補充：什麼是 Stress IR？
 
 DFT 測試時，scan chain 會把測試向量一路「shift」進整顆晶片的暫存器——每個 clock cycle **幾乎所有暫存器同時翻轉**，這跟正常功能模式（只有部分邏輯依資料變化翻轉）完全不同：
@@ -1076,6 +1103,20 @@ Sign-off 該檢查什麼不是固定清單，會隨**製程節點**變重：
 - **90nm 以下**：crosstalk 是**簽核階段必須修復**的項目
 
 > 製程越微縮、金屬線間距越窄、單元密度越高，串擾雜訊的影響就越大——這也是為什麼本簡報全程沒有出現 crosstalk sign-off 的討論：180nm 製程還不需要。對照 STA 三階段準確度遞增（合成後 < placement 後 < routing 後），**post-route STA 才是 timing sign-off 的依據**，因為那是唯一用上真實寄生參數與真實時脈樹的一次分析。
+
+---
+
+## Step 8 補充：APR Report 為什麼要上傳到共用平台？
+
+真實產線環境裡，光是「工具算出時序／DRC 通過」還不夠——公司通常會把每一輪 APR／sign-off 的報告，統一上傳到一個**內部共用的資料平台**，讓不同團隊都能查閱、追蹤、比對：
+
+- **設計團隊**：確認自己這顆 block 有沒有過關
+- **整合／管理團隊**：一次看到所有 block 的 sign-off 狀態，掌握整體 tapeout 進度
+- **跨版本比較**：晶片改版時，能跟上一版報告比對，看哪裡退步／進步
+
+這類平台通常集中收 timing／DRC／power／QoR 各種報告，做成儀表板方便追蹤，而不是每個人各自散落一堆 log 檔案。
+
+> 你提到的「Noob」（sign-off 工具）跟「Mind」（共用資料平台）這兩個名字，我沒辦法在公開資料或這個 repo 的筆記／參考設計裡找到對應確認，可能是課程或公司內部的特定命名——這裡先照你描述的**角色**（sign-off 工具、彙整報告的共用平台）說明概念，不代入確切工具名稱，避免給錯資訊。
 
 ---
 
