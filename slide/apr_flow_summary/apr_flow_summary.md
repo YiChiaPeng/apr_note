@@ -122,6 +122,19 @@ addRing -nets {VDD VSS} -type core_rings -layer {top M5 bottom M5 left M6 right 
 
 ---
 
+## Step 3：補充 — 各層金屬在電源網路的角色
+
+金屬層由下往上，線越粗、電阻越小，越適合承受大電流：
+
+- **M1（最下層）**：standard cell 電源軌（rail），線最細，直接接每顆 cell 的電源腳
+- **中層（M2–M4）**：以訊號 routing 為主，很少拿來走電源
+- **次上層（如 M5／M6）**：線較粗、電阻較小，通常拿來做 power ring／stripe
+- **最上層**：層數更多的製程才有，通常給全晶片級電源網格或很長距離的訊號
+
+> 金屬層數是製程決定的上限，不是每個設計都會用滿——實際用到哪幾層，看設計規模與供電需求而定。
+
+---
+
 ## Step 3：Power Planning — 要注意什麼
 
 - `verifyConnectivity` **必須 0 error** 才能進入下一階段（浮接電源會讓後面所有時序分析失真）
@@ -191,6 +204,22 @@ Congestion 熱圖出現大面積紅色熱點，代表這區要繞的線比可用
 ```tcl
 setPlaceMode -congEffort high
 place_opt_design -incremental
+```
+
+---
+
+## Step 4：補充 — Horizontal vs Vertical Congestion
+
+Congestion 不是單一數字，而是**分方向、分金屬層**算的：
+
+- 每個 GRC（Global Routing Cell）有四個邊，量測這個邊「需要幾條走線（demand）」vs「實際能提供幾條（supply）」
+- 每層金屬都有預設走線方向（如奇數層水平、偶數層垂直），壅塞天生分成兩個方向：
+  - **Horizontal congestion**：左右方向的走線資源夠不夠
+  - **Vertical congestion**：上下方向的走線資源夠不夠
+- 若 H／V 溢出比例差很多，通常代表 floorplan 長寬比或巨集擺放方向有問題（例如晶片被拉得很長很扁，某一個方向的通道天生較窄）
+
+```tcl
+report_congestion -grc_based -by_layer
 ```
 
 ---
