@@ -112,6 +112,24 @@ floorPlan -r 0.75 0.702385 100.94 100.44 100.32 100.24   ;# 看過壅塞/時序�
 
 ---
 
+## Step 2：補充 — Floorplan Resize 示意
+
+同樣數量的 cell，把 core 面積放大，utilization 自然下降，繞線空間就變寬鬆：
+
+```
+Resize 前（core 太小）              Resize 後（core 放大）
+┌─────────────────┐                ┌───────────────────────┐
+│▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤│                │▤▤▤▤▤▤▤▤▤▤▤▤            │
+│▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤│   ──resize──▶  │▤▤▤▤▤▤▤▤▤▤▤▤            │
+│▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤│                │▤▤▤▤▤▤▤▤▤▤▤▤            │
+└─────────────────┘                └───────────────────────┘
+utilization ≈ 90%（繞不進去）        utilization ≈ 70%（留白給繞線）
+```
+
+**要注意**：resize 不是越大越好——core 太大會拉長平均線長、增加面積成本；太小又繞不進去，要在「繞得進去」跟「面積夠省」之間找平衡點，通常靠壅塞熱圖／時序報告來判斷要不要 resize。
+
+---
+
 ## Step 3：Power Planning — 要做什麼
 
 建立電源 ring（環）→ stripe（網格）→ rail（標準單元電源軌），三層電源網路。
@@ -175,6 +193,22 @@ addStripe -nets {VDD VSS} -layer M5 -width 10 -set_to_set_distance 200   ;# 加�
 ```tcl
 place_opt_design
 ```
+
+---
+
+## Step 4：place_opt_design 常用設定
+
+```tcl
+setPlaceMode -congEffort high -timingDriven 1 -clkGateAware 1 \
+             -powerDriven 0 -placeIOPins 0 -reorderScan 1
+place_opt_design
+```
+
+- `-congEffort`（low／medium／high）：壅塞驅動強度，已知這顆設計容易壅塞就直接開 high，別等跑完才發現要重跑
+- `-timingDriven 1`：邊擺邊看時序，避免關鍵路徑的 cell 被拉得太遠
+- `-clkGateAware 1`：把 clock gating cell 跟它控制的那群暫存器擺近，減少額外 skew／繞線
+- `-powerDriven`：多電壓域設計要打開，確保 cell 乖乖留在自己電源域的 voltage area 內，不會被排到別的域裡去
+- `-placeIOPins 0`：IO 已經在 floorplan 固定好時要關掉，避免 placement 又把它挪動
 
 ---
 
