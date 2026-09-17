@@ -268,6 +268,21 @@ ccopt_design
 
 ---
 
+## Step 5：ccopt_design 常用設定
+
+```tcl
+set_ccopt_property buffer_cells {CLKBUFX1 CLKBUFX2 CLKBUFX4 CLKBUFX8}
+set_ccopt_property inverter_cells {CLKINVX1 CLKINVX2 CLKINVX4}
+create_ccopt_clock_tree_spec
+ccopt_design -cts
+```
+
+- `buffer_cells`／`inverter_cells`：限定蓋樹只能用哪些 cell，避免工具選到驅動力太強／太弱、不適合時脈樹的 cell
+- `create_ccopt_clock_tree_spec`：先把「要蓋成什麼樣子」的規則存成 spec，之後可以重複套用或針對特定 clock domain 微調
+- `ccopt_design -cts`：只跑 CTS 這個階段（`ccopt_design` 不加參數預設會連後面最佳化一起跑）
+
+---
+
 ## Step 5：CTS — 要注意什麼
 
 - **Hold time 要等 CTS 做完才能精確算**——CTS 前的 hold 檢查都不準
@@ -280,6 +295,20 @@ timeDesign -postCTS -hold -slackReports -outDir timingReports
 ```
 
 `-drvReports` 把 DRV 違規（max cap／tran／fanout）另外拉一份報告，跟時序分開看。
+
+---
+
+## Step 5：解決手法 — Skew 怎麼修
+
+- `ccopt_design` 本質上就是在做「skew balancing」：自動調整每條分支的 buffer 尺寸與插入位置，讓每個暫存器收到時脈的時間盡量一致
+- Skew 壓不下來時，可以直接設定明確的 **target skew** 目標，讓工具知道要修到多緊
+- 關聯緊密的一群暫存器（例如同一條資料通路）可以獨立分成 **skew group**，要求彼此之間的 skew 比全域目標更緊
+- 少數分支真的修不動時，可以用 **useful skew**（刻意讓 capture 端稍微晚到）換取更多可用時間，幫忙修 setup
+
+```tcl
+set_ccopt_property target_skew 0.1   ;# 設定明確的 skew 目標
+ccopt_design -cts                     ;# 重跑，讓 buffer 尺寸/位置重新平衡
+```
 
 ---
 
