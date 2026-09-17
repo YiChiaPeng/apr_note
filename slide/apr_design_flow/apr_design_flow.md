@@ -593,14 +593,6 @@ place_opt_design       ;# 反覆執行 5 輪才收斂
 
 ---
 
-## Step 4 補充：checkpoint 陷阱
-
-> `01Placement.inn` 的存檔時機其實是**剛設完 `setDesignMode`、`place_opt_design` 都還沒下**的那一刻；真正的 5 輪 placement 是在同一個 Innovus session 裡繼續往下做、直到存下一階段的 `clk_tree.inn` 之前才發生。
-
-**checkpoint 檔名不代表「做完該步驟後」的狀態，要配合指令歷史（`inn.cmd.gz`）才能還原真實時間點**——這個提醒之後在 Step 1 補充（附錄）比對 MMMC 設定時還會再用到同一招。
-
----
-
 ## Step 4 補充：什麼是 SAIF？
 
 Placement 階段如果要做**動態功耗最佳化**，需要知道每個訊號實際的**翻轉率（toggle rate）**——因為動態功耗 ∝ 電容 × 電壓² × 翻轉率，翻轉率估得不準，功耗分析就不準。
@@ -686,6 +678,14 @@ DFT 測試時，scan chain 會把測試向量一路「shift」進整顆晶片的
 - **用 scan-shift 專用翻轉率跑 IR 分析**：這是上一頁 SAIF 概念的另一種用法——不是餵功能模式翻轉率，而是餵「shift 時全部暫存器同時翻轉」這種特殊翻轉率，模擬最壞情況的電源壓力
 
 > `gcd`／`DTMF_CHIP` 雖然都有匯入 scan chain（`specifyScanChain`），但指令歷史裡沒有針對 scan shift 做專門的 IR 分析——這是量產晶片 DFT 簽核才會特別跑的一道分析。
+
+---
+
+## Step 4 補充：checkpoint 陷阱
+
+> `01Placement.inn` 的存檔時機其實是**剛設完 `setDesignMode`、`place_opt_design` 都還沒下**的那一刻；真正的 5 輪 placement 是在同一個 Innovus session 裡繼續往下做、直到存下一階段的 `clk_tree.inn` 之前才發生。
+
+**checkpoint 檔名不代表「做完該步驟後」的狀態，要配合指令歷史（`inn.cmd.gz`）才能還原真實時間點**——這個提醒之後在 Step 1 補充（附錄）比對 MMMC 設定時還會再用到同一招。
 
 ---
 
@@ -966,7 +966,7 @@ verifyProcessAntenna -report DTMF_CHIP.antenna.rpt -error 1000
 
 <!-- _class: lead -->
 
-# 🔍 Step 6 進階補充：SI／NDR（可視時間彈性簡報）
+# 🔍 Step 6 進階補充：Routing 疑難雜症（可視時間彈性簡報）
 
 ---
 
@@ -996,12 +996,6 @@ set_clock_tree_options -routing_rule my_ndr    ;# CTS 階段套用到時脈網�
 ```
 
 **為什麼時脈網路優先套用**：時脈是全晶片翻轉率最高、扇出最大、時序最敏感的訊號（呼應 Step 5 的 DRV 概念），最怕被鄰居串擾干擾到 skew，業界慣例是先把 NDR 規則套在時脈樹上，一般訊號線才維持預設規則。
-
----
-
-<!-- _class: lead -->
-
-# 🔍 Step 6 進階補充：Antenna／ECO／Spare Cell（可視時間彈性簡報）
 
 ---
 
