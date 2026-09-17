@@ -110,8 +110,6 @@ floorPlan -r 0.73 0.7 100 100 100 100    ;# 先試算
 floorPlan -r 0.75 0.702385 100.94 100.44 100.32 100.24   ;# 看過壅塞/時序後再定案
 ```
 
-> **真實案例**：DTMF_CHIP 就是先用一組粗略數字試算，確認可行後才微調到最終版——floorplan 尺寸幾乎沒有人第一次就抓準。
-
 ---
 
 ## Step 3：Power Planning — 要做什麼
@@ -178,7 +176,7 @@ specifyScanChain scan1 -start IOPADS_INST/scanin/C -stop IOPADS_INST/scanout/I
 setPlaceMode -congEffort high -timingDriven 1 -reorderScan 1
 ```
 
-> **真實案例教訓**：DTMF_CHIP 這輪 placement 反覆跑了 **5 次** `place_opt_design` 才收斂——placement 幾乎不會一次到位。
+> Placement 通常要**反覆跑好幾次**才會收斂，很少一次到位。
 
 ---
 
@@ -257,7 +255,7 @@ verifyProcessAntenna -report DESIGN.antenna.rpt -error 1000
 ecoChangeCell -inst <hold_violating_reg> -downsize   ;# 局部修 hold，不動其他已收斂部分
 ```
 
-> **真實案例教訓**：DTMF_CHIP 全流程 `routeDesign` 系列指令共呼叫 **103 次**、antenna 檢查呼叫 **27 次**——這是常態，不是設計出了問題。
+> Routing 相關指令在一顆設計裡經常被呼叫上百次——這是常態，不是設計出了問題。
 
 ---
 
@@ -297,12 +295,6 @@ addMetalFill
 - 量產設計還會插 **well tap**（防 latch-up）、**end cap**（保護 row 邊界）、**decap**（穩壓）
 - 這些不是每個練習案例都會做，但正式產品線通常缺一不可
 
-```tcl
-setEndCapMode -boundary_tap false   ;# 例：DTMF_CHIP 關掉了 endcap 順便當 well tap 用的功能
-```
-
-> 這行是真實案例裡找到的設定——代表這個練習沒有做 well tap／end cap 收尾，量產設計要記得補上。
-
 ---
 
 ## Step 8：Verification／Sign-off — 要做什麼
@@ -323,7 +315,7 @@ verifyConnectivity -type all
 - Hold 幾乎壓線時，下一步通常是針對那條路徑做局部 `optDesign -postRoute -hold`，不用整個階段重跑
 
 ```tcl
-setAnalysisMode -analysisType onChipVariation   ;# 真實案例只在 Route 階段才第一次開啟
+setAnalysisMode -analysisType onChipVariation   ;# 通常到 Route 階段才第一次開啟
 optDesign -postRoute -hold                      ;# 精修壓線的 hold 路徑
 ```
 
@@ -342,7 +334,7 @@ ecoChangeCell -inst <early_reg> -downsize   ;# 修 hold
 
 ---
 
-## Step 8：DTMF_CHIP 最終 Sign-off 結果
+## Step 8：完整 Sign-off 結果範例
 
 | 檢查項 | 結果 |
 |---|---|
@@ -419,7 +411,7 @@ write_sdf ${TOP_DESIGN}.sdf
 
 ## 為什麼這個循環重要
 
-九個步驟裡每一次「反覆疊代」——Placement 5 輪、Routing 103 次呼叫、CTS by-item 微調——本質上都是同一個循環：
+九個步驟裡每一次「反覆疊代」——Placement 跑好幾輪、Routing 呼叫上百次、CTS by-item 微調——本質上都是同一個循環：
 
 **跑分析 → 找問題 → 局部修正 → 再驗證**，不斷重複直到全部違規清零。
 
