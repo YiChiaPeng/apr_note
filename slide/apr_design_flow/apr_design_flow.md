@@ -86,6 +86,14 @@ Verilog/VHDL   →   RTL 轉成 gate-level     →   Floorplan ~ Routing    → 
 | Skew | 時脈訊號到達不同暫存器的時間差，CTS 的目標之一就是壓低它 |
 | Congestion（壅塞） | 某區域要繞的線太多、資源不夠，容易繞不進去或繞很繞 |
 | IR Drop／EM | 電源網路壓降過大／金屬線電流密度過高，兩者都是電源設計要顧慮的可靠度問題 |
+
+---
+
+## 名詞速查表（續）
+
+| 名詞 | 白話解釋 |
+|---|---|
+| **QoR**（Quality of Results） | 綜合評估某個 run／階段好壞的一組指標（timing、area、power、congestion、DRC…），業界常用來比較不同設定／flow 誰做得比較好 |
 | Tapeout | Sign-off 通過後，把最終版圖資料正式送交晶圓廠準備生產 |
 
 > 這些詞後面章節會直接用到，忘記意思可以回來查這一頁。
