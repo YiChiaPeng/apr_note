@@ -999,6 +999,24 @@ set_clock_tree_options -routing_rule my_ndr    ;# CTS 階段套用到時脈網�
 
 ---
 
+## Step 6 補充：SI／Crosstalk 還可以怎麼解？
+
+NDR 主要用在時脈這種特別重要的訊號，一般訊號線的串擾則有更多元的修法：
+
+- **Routing 時就開防範選項**：讓 router 在繞線階段主動避開容易串擾的走線方式，而不是等繞完再回頭修
+- **加地線屏蔽（shielding）**：在兩條容易互相干擾的訊號線中間插一條接地線，直接隔開耦合
+- **提高受害訊號的驅動能力**：upsize 受影響那條線的 driver，訊號本身抗干擾能力變強，比較不容易被鄰居牽動
+- **少數修不掉的手動處理**：移動 driver 位置、換層繞線，拉開跟干擾源的距離
+
+```tcl
+set_si_options -delta_delay true -route_xtalk_prevention true -static_noise true
+route_opt -xtalk_reduction -incremental   ;# routing 完後針對串擾嚴重的地方最佳化
+```
+
+> **修復的兩大類**：based-on-cell（換 cell、加驅動力）跟 based-on-routing（調整線距、換層）——先讓 router 自動修，少數自動修不掉的才手動介入。
+
+---
+
 ## Step 6 補充：Routing 怎麼解決 Antenna 違規（問題根源）
 
 **問題根源**：晶圓廠用電漿蝕刻（plasma etching）把多餘金屬蝕刻掉來刻出線路。蝕刻過程中，一段還沒接到上層金屬／擴散區的長金屬線，會像天線一樣收集帶電離子，在它連接的電晶體閘極（gate）上累積電壓——電壓太高會把閘極氧化層打穿，電晶體永久損壞。
