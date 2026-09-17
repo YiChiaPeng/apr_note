@@ -322,6 +322,36 @@ floorPlan -site tsm3site -r 0.75 0.702385 100.94 100.44 100.32 100.24
 
 ---
 
+## Step 2 補充：同 Module 聚在一起 vs 階層化設計
+
+這是兩個容易搞混、但完全不同層次的概念：
+
+- **階層化設計（Partition，上一頁）**：整顆晶片**實體上**被切成好幾個獨立區塊，每個區塊有自己的 pin 邊界，各自做 placement／CTS／routing——是否要切，是**設計規模**的決定
+- **同 Module 聚在一起（hierarchical gravity）**：即使**沒有**切成區塊、整顆晶片仍是扁平化（flat）placement，還是可以選擇要不要讓**同一個 RTL module 的 cell 保持聚在一起**——是**單一 placement run 內部**的擺放偏好
+
+| | 階層化設計（Partition） | 同 Module 聚在一起 |
+|---|---|---|
+| 作用範圍 | 整顆晶片，切成獨立區塊 | 單一 flat placement 內部的擺放偏好 |
+| 邊界 | 硬邊界，區塊間只能透過 pin 溝通 | 沒有實體邊界，只是傾向聚在一起 |
+| 開啟時 | 各區塊可平行開發，加速大型設計 | 保留模組邊界完整性，方便除錯／可讀性 |
+| 關閉時 | 不適用（不切分就是扁平化） | Cell 可自由混合擺放，更利於時序／壅塞最佳化 |
+
+---
+
+## Step 2 補充：同 Module 聚在一起怎麼設定？
+
+```tcl
+create_fp_placement -timing_driven -no_hierarchy_gravity   ;# 關閉：cell 自由混合，優先求最佳 QoR
+create_fp_placement -timing_driven                          ;# 開啟（VFP 預設）：保留模組邊界完整性
+```
+
+- **開啟（預設）**：模組的單元分布更規則，同一模組的邊界完整性保留下來，但不利於跨模組邊界的時序最佳化
+- **關閉（`-no_hierarchy_gravity`）**：模組邊界不保證完整，但工具能更自由地把 cell 擺到對時序最有利的位置
+
+> `gcd`／`DTMF_CHIP` 兩個案例都是扁平化 placement，指令歷史裡也沒看到刻意保留 module 邊界的設定——小規模設計通常直接關掉 hierarchical gravity，讓工具自由最佳化，不用犧牲 QoR 去保模組完整性。
+
+---
+
 ## Step 2 補充：什麼是 Halo？
 
 （切完 partition／決定好每個區塊的範圍後，區塊內部的巨集才會遇到下面這個問題）
