@@ -179,7 +179,7 @@ loadConfig ../design_data/${TOP_DESIGN}.conf 1
 
 ## Step 1 補充：DTMF_CHIP 的真實 MMMC 設定
 
-`gcd` 只用兩個 `.lib` 檔做示範；`reference_design/180um/` 的 checkpoint（`viewDefinition.tcl`）還原出一套完整的 corner-based MMMC：
+`gcd` 只用兩個 `.lib` 檔做示範；`reference_design/180um/` 的 checkpoint（`viewDefinition.tcl`）還原出一套完整的 corner-based MMMC。先看 library／corner 怎麼建立：
 
 ```tcl
 create_library_set -name dtmf_libs_min -timing {pllclk_fast.lib ram_128x16A_fast_syn.lib
@@ -192,12 +192,22 @@ create_rc_corner -name dtmf_rc_corner -cap_table t018s6mlv.capTbl -qx_tech_file 
 
 create_delay_corner -name dtmf_corner_min -library_set dtmf_libs_min -rc_corner dtmf_rc_corner
 create_delay_corner -name dtmf_corner_max -library_set dtmf_libs_max -rc_corner dtmf_rc_corner
+```
 
+---
+
+## Step 1 補充：DTMF_CHIP 的真實 MMMC 設定（續）
+
+再用 constraint mode／analysis view 把上一頁的 corner 接到 setup／hold 分析：
+
+```tcl
 create_constraint_mode -name common -sdc_files {dtmf.sdc}
 create_analysis_view -name dtmf_view_setup -constraint_mode common -delay_corner dtmf_corner_max
 create_analysis_view -name dtmf_view_hold  -constraint_mode common -delay_corner dtmf_corner_min
 set_analysis_view -setup {dtmf_view_setup} -hold {dtmf_view_hold}
 ```
+
+`dtmf_view_setup` 用最慢（max）corner 抓 setup 違規，`dtmf_view_hold` 用最快（min）corner 抓 hold 違規——下一頁會拆解這套結構的邏輯。
 
 ---
 
@@ -310,7 +320,7 @@ floorPlan -site tsm3site -r 0.75 0.702385 100.94 100.44 100.32 100.24
 - 好處：區塊之間可以平行開發、各自收斂，加速大型設計的疊代速度
 - 代價：切分邊界要事先規劃好每個區塊對外露出哪些 pin，切壞了反而更難修
 
-> `gcd`／`DTMF_CHIP` 都用扁平化 placement（`setPlaceMode -fp false`，Step 4 已提過），整個設計當一個區塊處理，沒有真的切 partition。
+> `gcd`／`DTMF_CHIP` 都用扁平化 placement（`setPlaceMode -fp false`，後面 Step 4 會再看到），整個設計當一個區塊處理，沒有真的切 partition。
 
 ---
 
@@ -511,6 +521,10 @@ M0  ▮▮▮ 顆粒最細的 local interconnect（只有先進製程才有）�
               [ 電晶體／Standard cell 本體 ]
 ```
 
+---
+
+## Step 3 補充：由下往上金屬層特性
+
 - **由下往上**：線越細、間距（pitch）越小 → 越適合精密的短距離連線，但電阻大；線越粗、間距越大 → 電阻小、能承受大電流，適合長距離走線與電源
 - **M0**：只有較先進製程（通常 <45nm）才會有的「local interconnect」層，專門把電晶體接到 M1；**180nm 這種較舊製程通常沒有 M0**，電晶體直接由 M1 接出
 - **M1**：幾乎所有製程共通的最下層通用走線層，standard cell 的電源 rail、同排 cell 間短距離訊號都在這層
@@ -614,14 +628,18 @@ setPlaceMode -congEffort high -timingDriven 1 -clkGateAware 1 \
 place_opt_design       ;# 反覆執行 5 輪才收斂
 ```
 
+**真實案例比教學範例多做的事**：先匯入 scan chain DEF、指定兩條 scan chain 起訖點，並用 `place_opt_design` 反覆跑 **5 輪**才收斂 —— 教學範例只跑一次是因為電路太小、沒有真實收斂壓力。
+
+---
+
+## Step 4：Placement — `DTMF_CHIP` 收斂結果
+
 | 收斂結果（最後一輪 pre-CTS） | 數值 |
 |---|---|
 | Standard cell 數 | 5,561 顆／Net 5,914 條 |
 | Cell utilization | ≈76.5–77.5% |
 | Pre-CTS setup WNS | 全部為正值（0.04–0.15ns），0 違規路徑 |
 | DRC（`verifyGeometry`） | 0 違規，乾淨 |
-
-**真實案例比教學範例多做的事**：先匯入 scan chain DEF、指定兩條 scan chain 起訖點，並用 `place_opt_design` 反覆跑 **5 輪**才收斂 —— 教學範例只跑一次是因為電路太小、沒有真實收斂壓力。
 
 ---
 
@@ -723,7 +741,7 @@ DFT 測試時，scan chain 會把測試向量一路「shift」進整顆晶片的
 
 > `01Placement.inn` 的存檔時機其實是**剛設完 `setDesignMode`、`place_opt_design` 都還沒下**的那一刻；真正的 5 輪 placement 是在同一個 Innovus session 裡繼續往下做、直到存下一階段的 `clk_tree.inn` 之前才發生。
 
-**checkpoint 檔名不代表「做完該步驟後」的狀態，要配合指令歷史（`inn.cmd.gz`）才能還原真實時間點**——這個提醒之後在 Step 1 補充（附錄）比對 MMMC 設定時還會再用到同一招。
+**checkpoint 檔名不代表「做完該步驟後」的狀態，要配合指令歷史（`inn.cmd.gz`）才能還原真實時間點**——先前在 Step 1 補充比對 MMMC 設定時就已經用過同一招。
 
 ---
 
@@ -936,6 +954,34 @@ Detail Routing（在格子裡把每條線精確的金屬線路徑、via 都畫�
 
 ---
 
+## Step 6：Routing — `gcd` 範例
+
+```tcl
+setNanoRouteMode -quiet -routeWithTimingDriven false
+setNanoRouteMode -quiet -routeWithSiDriven false
+routeDesign -globalDetail
+```
+教學範例**關閉**了時序驅動與訊號完整性（SI）驅動 routing 以求簡化、一次執行完 global+detail —— **實務設計通常會打開這兩項**。
+
+---
+
+## Step 6：Routing — `DTMF_CHIP` 實際案例
+
+```tcl
+routeDesign -globalDetail                          ;# 01Route：初版繞線
+routeDesign -globalDetail -viaOpt -wireOpt         ;# 反覆疊代 via/wire 最佳化
+                                                    ;#（routeDesign 系列全流程共呼叫 103 次！）
+                                                    ;# 03Byitemopt_routing：逐條 net 修違規
+verifyConnectivity ...                             ;#（呼叫 74 次，穿插在每輪繞線之間檢查）
+verifyProcessAntenna -report DTMF_CHIP.antenna.rpt -error 1000
+                                                    ;#（共呼叫 27 次，違規數逐漸收斂到 0）
+```
+`routeDesign` 103 次＋`verifyConnectivity` 74 次＋`verifyProcessAntenna` 27 次，三個數字加總說明 Routing 階段的本質就是「繞線 → 檢查 → 再繞線」不斷疊代，而非一次執行到位。
+
+**分支插曲**：11/2 第一次繞完線後手動修 DRC 到 `02Fix_done`，但學生後來回頭多做一輪 CTS 微調（Step 5 的 `04ByitemCCOPT_1103`），**重新繞線**、直接跳過 `02Fix_done`，走向更乾淨的 `03Byitemopt_routing → 04Antenna` —— 代表 `02Fix_done` 是被放棄的舊嘗試，**真實流程經常需要回頭重做前面階段**,不是嚴格單向。
+
+---
+
 <!-- _class: lead -->
 
 # 🔍 Step 6 進階補充：Congestion（可視時間彈性簡報）
@@ -974,34 +1020,6 @@ phase5. METAL6  : Overflow = 0      GRCs = 0    (0.00%)
 
 ---
 
-## Step 6：Routing — `gcd` 範例
-
-```tcl
-setNanoRouteMode -quiet -routeWithTimingDriven false
-setNanoRouteMode -quiet -routeWithSiDriven false
-routeDesign -globalDetail
-```
-教學範例**關閉**了時序驅動與訊號完整性（SI）驅動 routing 以求簡化、一次執行完 global+detail —— **實務設計通常會打開這兩項**。
-
----
-
-## Step 6：Routing — `DTMF_CHIP` 實際案例
-
-```tcl
-routeDesign -globalDetail                          ;# 01Route：初版繞線
-routeDesign -globalDetail -viaOpt -wireOpt         ;# 反覆疊代 via/wire 最佳化
-                                                    ;#（routeDesign 系列全流程共呼叫 103 次！）
-                                                    ;# 03Byitemopt_routing：逐條 net 修違規
-verifyConnectivity ...                             ;#（呼叫 74 次，穿插在每輪繞線之間檢查）
-verifyProcessAntenna -report DTMF_CHIP.antenna.rpt -error 1000
-                                                    ;#（共呼叫 27 次，違規數逐漸收斂到 0）
-```
-`routeDesign` 103 次＋`verifyConnectivity` 74 次＋`verifyProcessAntenna` 27 次，三個數字加總說明 Routing 階段的本質就是「繞線 → 檢查 → 再繞線」不斷疊代，而非一次執行到位。
-
-**分支插曲**：11/2 第一次繞完線後手動修 DRC 到 `02Fix_done`，但學生後來回頭多做一輪 CTS 微調（Step 5 的 `04ByitemCCOPT_1103`），**重新繞線**、直接跳過 `02Fix_done`，走向更乾淨的 `03Byitemopt_routing → 04Antenna` —— 代表 `02Fix_done` 是被放棄的舊嘗試，**真實流程經常需要回頭重做前面階段**,不是嚴格單向。
-
----
-
 <!-- _class: lead -->
 
 # 🔍 Step 6 進階補充：Routing 疑難雜症（可視時間彈性簡報）
@@ -1015,7 +1033,7 @@ verifyProcessAntenna -report DTMF_CHIP.antenna.rpt -error 1000
 - **靜態受害**：旁邊那條線本來沒在動，卻被感應出一個毛刺（glitch），可能被誤判成邏輯訊號
 - **動態受害**：旁邊那條線剛好也在變化，訊號被加速或延遲，實際延遲跟算出來的不一樣
 
-**為什麼越來越重要**：製程越微縮、線距越窄、單元密度越高，串擾影響越大——180nm 可以不太管，130nm 選做，**90nm 以下 sign-off 必須修**（呼應 Step 8 補充過的製程門檻）。
+**為什麼越來越重要**：製程越微縮、線距越窄、單元密度越高，串擾影響越大——180nm 可以不太管，130nm 選做，**90nm 以下 sign-off 必須修**（後面 Step 8 補充會談到的製程門檻）。
 
 > `gcd` 範例乾脆關掉 SI 驅動 routing（`-routeWithSiDriven false`）求簡化；DTMF_CHIP 真實案例在不同輪次間**開關切換**（`true`／`false`／`1` 都出現過），代表實務上大多數時候會打開，只是某些疊代階段為了先求繞通而暫時關閉。
 
@@ -1280,12 +1298,22 @@ verifyProcessAntenna -reportfile gcd.antenna.rpt -error 1000
 | `verifyProcessAntenna` | **0 violations** |
 | Setup timing WNS(all) | **0.022 ns**（228 條路徑，0 違規） |
 | Hold timing WNS(all) | **-0.000 ns**（228 條路徑中 1 條微幅違規） |
+
+---
+
+## Step 8：DTMF_CHIP 最終 sign-off 結果（續）
+
+| 檢查項 | 結果 |
+|---|---|
 | 總繞線長 | 320,640 μm（M1 23,049／M2 97,520／M3 120,783／M4 79,288） |
 | Via 總數 | 48,327（Via12 23,363／Via23 19,244／Via34 5,720） |
 | Cell utilization（post-route） | 66.8% |
 | Standard cell／Net 數 | ≈5,561–5,571 顆／≈5,914–5,923 條 |
 
-**為什麼要看這些數字：**
+---
+
+## Step 8：sign-off 數字為什麼要看
+
 - 總繞線長／Via 數：反映 routing 密度，間接對應後段良率與 EM（electromigration）風險
 - Cell utilization（post-route）：驗證最終密度是否還落在 Floorplan 當初設定的目標範圍內（本例 Floorplan 設定 ≈70.2%，post-route 略降到 66.8%），形成頭尾呼應
 - Standard cell／Net 數：確認 DFM（filler／metal fill）沒有改變邏輯規模，只補了物理填充
@@ -1338,7 +1366,7 @@ Sign-off 該檢查什麼不是固定清單，會隨**製程節點**變重：
 - **130nm**：crosstalk 變成建議項目（可選）
 - **90nm 以下**：crosstalk 是**簽核階段必須修復**的項目
 
-> 製程越微縮、金屬線間距越窄、單元密度越高，串擾雜訊的影響就越大——這也是為什麼本簡報全程沒有出現 crosstalk sign-off 的討論：180nm 製程還不需要。對照 STA 三階段準確度遞增（合成後 < placement 後 < routing 後），**post-route STA 才是 timing sign-off 的依據**，因為那是唯一用上真實寄生參數與真實時脈樹的一次分析。
+> 製程越微縮、金屬線間距越窄、單元密度越高，串擾雜訊的影響就越大——這也是為什麼本簡報全程沒有出現 crosstalk sign-off 的討論：180nm 製程還不需要。**post-route STA 才是 timing sign-off 的依據**——為什麼準確度最高，後面 Step 9 補充（SPEF）會解釋。
 
 ---
 
@@ -1352,7 +1380,7 @@ Sign-off 該檢查什麼不是固定清單，會隨**製程節點**變重：
 
 這類平台通常集中收 timing／DRC／power／QoR 各種報告，做成儀表板方便追蹤，而不是每個人各自散落一堆 log 檔案。
 
-> 你提到的「Noob」（sign-off 工具）跟「Mind」（共用資料平台）這兩個名字，我沒辦法在公開資料或這個 repo 的筆記／參考設計裡找到對應確認，可能是課程或公司內部的特定命名——這裡先照你描述的**角色**（sign-off 工具、彙整報告的共用平台）說明概念，不代入確切工具名稱，避免給錯資訊。
+> 不同公司／課程對這兩種角色的命名不同（例如某套 sign-off 工具、某個共用報告平台），這裡不代入特定工具名稱，只說明**角色**本身：一個負責跑驗證，一個負責彙整、共享結果。
 
 ---
 
@@ -1400,7 +1428,7 @@ saveDesign ${TOP_DESIGN}.enc
 
 **SPEF（Standard Parasitic Exchange Format）** 記錄的是 routing 完成後，每一條金屬線**實際量到的寄生電阻／電容**——不是估算值，是真的把每段線的幾何形狀、跟旁邊線的耦合電容都抽出來的結果。
 
-**為什麼需要它**：Step 5 提過 STA 準確度隨階段遞增（合成後統計估算 < placement 後估算走線 < routing 後真實寄生參數），**SPEF 就是「routing 後真實寄生參數」的具體檔案**——沒有它，STA 工具只能用估算值猜每條線的延遲；有了它，才能算出最接近實際晶片行為的時序數字。
+**為什麼需要它**：STA 的準確度會隨階段遞增（合成後統計估算 < placement 後估算走線 < routing 後真實寄生參數），**SPEF 就是「routing 後真實寄生參數」的具體檔案**——沒有它，STA 工具只能用估算值猜每條線的延遲；有了它，才能算出最接近實際晶片行為的時序數字。這也是為什麼 Step 8 提到 post-route STA 才是 timing sign-off 依據的原因。
 
 **跟 Step 8 sign-off 的關聯**：Step 8 提過 sign-off 要換一套獨立工具（Star-RCXT＋PrimeTime-SI）重新驗證——**Star-RCXT 做的事就是產生更精確版本的 SPEF**，再交給 PrimeTime 讀入做最終 timing sign-off，比 P&R 工具自己內建的寄生抽取更準確。
 
@@ -1413,25 +1441,19 @@ saveDesign ${TOP_DESIGN}.enc
 後端設計不是「做完就結束」，而是一直在跑這個循環，直到所有違規清零：
 
 ```
-   ① STA（跑時序分析）
-   找出 setup／hold／DRV 違規路徑
-            │
-            ▼
+   ① STA（跑時序分析，找出違規路徑）
+            │ ▼
    ② Tweaker ECO（局部微調修正）
-   downsize／upsize、插 buffer、微調 routing
-            │
-            ▼
-   ③ APR 落實改動
-   legalize placement、route_zrt_eco
-   （只動受影響的局部，其他已收斂部分不碰）
-            │
-            ▼
-   再跑 STA 驗證 ──── 還有違規？──▶ 回到 ①
-            │
-           沒有了
+            │ ▼
+   ③ APR 落實改動（只動受影響的局部）
+            │ ▼
+   再跑 STA 驗證 ──還有違規？──▶ 回到 ①
+            │ 沒有了
             ▼
           收斂完成
 ```
+
+> 每一步做什麼、對應哪個 Step 的實例，下一頁細看。
 
 ---
 
@@ -1442,18 +1464,7 @@ saveDesign ${TOP_DESIGN}.enc
 - **③ APR 落實改動**：把 ECO 的改動實際做進版圖，只 legalize／重繞受影響的局部區域（`legalize_placement -eco`、`route_zrt_eco`），已經收斂的其他部分完全不受影響
 - **回到 STA 驗證**：確認剛剛的修正真的解決問題，也沒有引入新的違規——還有問題就回到 ①，直到清零
 
----
-
-## 為什麼這個循環貫穿整份簡報
-
-本簡報看過的每一次疊代，本質上都是這個循環的實例：
-
-- Placement 反覆跑 **5 輪**才收斂
-- CTS 拆成好幾個 checkpoint，事後還回頭做 by-item 微調
-- Routing 的 `routeDesign` 呼叫了 **103 次**、`verifyProcessAntenna` 呼叫 **27 次**
-- SPI_INST 那批 **16 顆暫存器**的 downsize ECO，正是熱點分析後的 Tweaker ECO
-
-**核心心法**：跑分析 → 找問題 → 局部修正 → 再驗證，不斷重複——這就是第一頁「RTL-to-GDS 九大步驟」結尾那句「做完 → 檢查 → 不合格就疊代重做」的具體樣貌。
+> 本簡報看過的每次疊代都是這個循環的實例——Placement 反覆跑 5 輪、Routing 的 `routeDesign` 呼叫 103 次、SPI_INST 16 顆暫存器的 downsize ECO——**核心心法**就是「跑分析 → 找問題 → 局部修正 → 再驗證」不斷重複。
 
 ---
 
