@@ -155,7 +155,7 @@ Verilog/VHDL   →   RTL 轉成 gate-level     →   Floorplan ~ Routing    → 
 - 建立 MMMC（Multi-Mode Multi-Corner）多角多模分析設定
 - 讀入 IO 接腳位置約束
 
-> 對照 `note/floorplan.md` 附錄 Step.1；ICC 對應指令為 `create_mw_lib`、`import_designs`、`read_sdc`。
+> 對照 `note/floorplan.md` 附錄 Step.1。
 
 ---
 
@@ -256,7 +256,7 @@ set_analysis_view -setup {dtmf_view_setup} -hold {dtmf_view_hold}
 - 評估巨集（macro）擺放位置（若有）
 - 目標：面積最小、繞線總長最短、關鍵路徑延遲最小、routing 成功率最高
 
-> 詳見 `note/floorplan.md` 3.1–3.2 節（ICC 用 `initialize_floorplan`）
+> 詳見 `note/floorplan.md` 3.1–3.2 節
 
 ---
 
@@ -399,7 +399,7 @@ addHaloToBlock {25 35 15 25} DTMF_INST/PLLCLK_INST
 ```
 `{左 下 右 上}` 四個數字是四邊的保留寬度（μm）——指令歷史裡這組數字被反覆調整了近 10 次，代表 halo 寬度跟 floorplan 尺寸一樣，是「先抓大概、看壅塞再調整」的疊代過程，不是一次定案。
 
-> 對照 `note/floorplan.md` 3.2.12–3.2.15 節（硬性／軟性 blockage、`set_keepout_margin`、`create_route_guide`）
+> 對照 `note/floorplan.md` 3.2.12–3.2.15 節（硬性／軟性 blockage）
 
 ---
 
@@ -411,10 +411,9 @@ Halo 概念上分兩種用途，只是不同工具的實作方式不太一樣：
 |---|---|---|
 | 擋什麼 | 阻止 standard cell 被放進這個範圍 | 限制某些金屬層的訊號線不能繞過這個範圍 |
 | 為什麼要擋 | 避免 cell 貼著巨集邊界，接腳附近繞線空間不夠 | 幫巨集自己的電源環/接腳留出走線空間，或避免數位訊號干擾類比巨集 |
-| ICC 對應指令 | `set_keepout_margin -type hard/soft -outer {左 下 右 上}` | `create_route_guide -no_signal_layer {METAL5 METAL6} -coordinate {...}` |
 | Innovus 對應指令 | `addHaloToBlock {左 下 右 上} inst` | 同一個指令一次設定，沒有再分開下第二道指令 |
 
-**DTMF_CHIP 真實案例只用了 `addHaloToBlock` 一種指令**——代表 Innovus 把 place halo 跟 routing halo 合併成同一個保留區設定，不像 ICC 拆成 `set_keepout_margin`（置放）＋`create_route_guide`（繞線）兩道指令；概念上仍是同一件事：**在巨集周圍留一圈「別人不能進來」的緩衝區**，保留給接下來的電源網路與訊號出線空間。
+**DTMF_CHIP 真實案例只用了 `addHaloToBlock` 一種指令**——代表 Innovus 把 place halo 跟 routing halo 合併成同一個保留區設定，不像有些工具要分兩道指令（一道管置放、一道管繞線）；概念上仍是同一件事：**在巨集周圍留一圈「別人不能進來」的緩衝區**，保留給接下來的電源網路與訊號出線空間。
 
 ---
 
@@ -433,7 +432,7 @@ Halo 概念上分兩種用途，只是不同工具的實作方式不太一樣：
 4. 用 **sroute** 把電源網格一路連到標準單元的 **rail**（M1 電源軌）
 5. 用 `verifyConnectivity` 確認電源網路無斷點
 
-> 詳見 `note/floorplan.md` 3.5 節 PNS（Power Network Synthesis）；ICC 對應 `derive_pg_connection` + `create_pad_rings`
+> 詳見 `note/floorplan.md` 3.5 節 PNS（Power Network Synthesis）
 
 ---
 
@@ -556,7 +555,7 @@ M0  ▮▮▮ 顆粒最細的 local interconnect（只有先進製程才有）�
 
 ## Step 3：Power Planning 檢查清單
 
-- [ ] 所有 instance 的電源腳都已邏輯連接（`globalNetConnect` / `derive_pg_connection`）
+- [ ] 所有 instance 的電源腳都已邏輯連接（`globalNetConnect`）
 - [ ] Core ring 已建立，巨集若有獨立供電需求也建立 block ring
 - [ ] Stripe 密度是否足夠（依 IR drop／EM 需求決定 stripe 數量與寬度）
 - [ ] `sroute` 是否把 ring/stripe 一路接到 M1 標準單元 rail、macro pin
@@ -646,6 +645,36 @@ place_opt_design       ;# 反覆執行 5 輪才收斂
 <!-- _class: lead -->
 
 # 🔍 Step 4 進階補充（可視時間彈性簡報）
+
+---
+
+## Step 4 補充：用 Placement Blockage 劃出禁擺區
+
+真實案例裡除了 Halo（保留給特定巨集的緩衝區），還有另一種更通用的「劃區」工具——**place blockage**：在版圖裡框一塊矩形區域，禁止 standard cell 被擺進去，跟巨集無關，單純是「這塊地保留起來」。
+
+```tcl
+createPlaceBlockage -box 35.584 -257.442 94.354 -158.0515 -type hard
+```
+`-box {llx lly urx ury}` 是矩形四個角座標（μm）；`-type hard` 代表完全禁止（也有 `soft`，工具會盡量避開，但必要時仍可以放）。
+
+---
+
+## Step 4 補充：DTMF_CHIP 真實案例怎麼用 Blockage
+
+- **Version4**：兩個固定 blockage 從 CTS 階段（`02CTS`）才開始出現、一路沿用到最終 Route（`05MetalFill`），但 **Placement 階段本身（`01Placement`）還沒有**——代表這兩塊禁擺區是進 CTS 前才刻意劃出來的
+- **Version5**：Placement 階段就直接設定，checkpoint 甚至直接命名為 `02Placement_blockageset`，區域數量還從 1 個加到 2 個——改版後把這個步驟正式排進 placement 流程
+
+---
+
+## Step 4 補充：Metal Zone——限制特定金屬層的走線區
+
+Place blockage 擋的是「cell 能不能被擺在這裡」；如果只想限制「這塊區域裡某幾層金屬能不能走線」（例如把某個通道保留給電源網格、不准訊號線佔用），Innovus 用的是指定層別的 **route blockage**：
+```tcl
+createRouteBlockage -layer {M5 M6} -box {llx lly urx ury}
+```
+概念跟 place blockage 一樣是「劃一塊區域」，差別在於它只擋**特定金屬層**的走線，其他層照常使用——這就是所謂的 **Metal Zone**：把某幾層金屬「分區」保留給特定用途（電源通道、跳線區、避免訊號干擾類比巨集）。
+
+> `gcd`／`DTMF_CHIP` 指令歷史裡沒有出現 `createRouteBlockage`（兩個案例都只用了不分層的 `createPlaceBlockage`）——這是 Innovus 支援、但這兩個練習案例沒有用到的功能。
 
 ---
 
@@ -928,7 +957,7 @@ ccopt_design（照著 spec 實際蓋樹、做最佳化）
 5. 修 **antenna 違例**（金屬走線過長累積電荷，需插 diode 或跳層修復）
 6. Routing 完成後重新做 timing/DRC 檢查，不合格就繼續疊代
 
-> 詳見 `note/routing.md` 6.1–6.2 節；NanoRoute（Innovus）對應 ICC 的 Zroute
+> 詳見 `note/routing.md` 6.1–6.2 節；Innovus 的 routing engine 叫 **NanoRoute**
 
 ---
 
@@ -1163,18 +1192,11 @@ ecoChangeCell -inst DTMF_INST/SPI_INST/dout_reg_1  -downsize
 
 ## Step 6 補充：Spare Cell 怎麼加、怎麼用
 
-**Placement 階段先埋好 spare cell**（ICC 指令，Innovus 概念相同）：
-```tcl
-insert_spare_cells -lib_cell {NAND2 NOR2} -num_instances 20 \
-  -cell_name SPARE_PREFIX_NAME -tie -hier_cell ALU
+**概念**：Placement 階段先在設計裡埋幾顆「沒接線的」邏輯閘（NAND／NOR／buffer 等），流片後如果發現 bug，只要改金屬線把訊號接到旁邊的 spare cell，不用重做光罩底層——這些沒接線的 cell 必須標記成「不要被最佳化工具當無用邏輯清掉」「placement 不要被大幅搬動」。
 
-set_dont_touch [all_spare_cells] true               ;# 沒接線也不會被當無用邏輯刪掉
-set_attribute [all_spare_cells] is_soft_fixed true  ;# placement 不大搬動，CTS/routing 仍可微調
-```
+**真的要修 bug 時**：斷開錯誤邏輯的訊號 → 挑一顆**離錯誤 cell 最近**的 spare cell（減少金屬修改幅度）→ 只改金屬層把訊號接過去。
 
-**真的要修 bug 時**：斷開錯誤邏輯的訊號 → 挑一顆**離錯誤 cell 最近**的 spare cell（減少金屬修改幅度）→ 只改金屬層把訊號接過去（`route_zrt_eco`）。
-
-> `gcd`／`DTMF_CHIP` 指令歷史裡都找不到 `insert_spare_cells`／`spread_spare_cells`，但 Innovus 的 `setPlaceMode` 其實已經內建 `-ignoreSpare`／`-moduleAwareSpare` 這兩個 spare cell 感知選項——工具早就準備好支援，只是這兩個練習案例沒有用到。
+> `gcd`／`DTMF_CHIP` 指令歷史裡都沒有用到 spare cell 相關指令，但 Innovus 的 `setPlaceMode` 其實已經內建 `-ignoreSpare`／`-moduleAwareSpare` 這兩個 spare cell 感知選項——工具早就準備好支援，只是這兩個練習案例沒有用到。
 
 ---
 
@@ -1212,7 +1234,7 @@ addFiller -prifix -doDRC     ;# 插 filler 同時做 DRC 檢查
 addMetalFill
 ```
 
-> 詳見 `note/routing.md` 附錄 Step.7；ICC 概念對應 `insert_pad_filler`（`floorplan.md` 3.2.4 節，填的是 pad 間隙而非 cell row 間隙）
+> 詳見 `note/routing.md` 附錄 Step.7
 
 ---
 
@@ -1461,7 +1483,7 @@ saveDesign ${TOP_DESIGN}.enc
 
 - **① STA**：檢查目前設計時序有沒有違規（Step 5 補充的 DRV、Step 8 的 sign-off 都是這一步）
 - **② Tweaker ECO**：不重跑整個階段，只對違規路徑做**最小幅度**的局部微調（downsize／upsize、插 buffer、微調 routing）——Step 6 的 `ecoChangeCell -downsize` 就是實例
-- **③ APR 落實改動**：把 ECO 的改動實際做進版圖，只 legalize／重繞受影響的局部區域（`legalize_placement -eco`、`route_zrt_eco`），已經收斂的其他部分完全不受影響
+- **③ APR 落實改動**：把 ECO 的改動實際做進版圖，只 legalize／重繞受影響的局部區域，已經收斂的其他部分完全不受影響
 - **回到 STA 驗證**：確認剛剛的修正真的解決問題，也沒有引入新的違規——還有問題就回到 ①，直到清零
 
 > 本簡報看過的每次疊代都是這個循環的實例——Placement 反覆跑 5 輪、Routing 的 `routeDesign` 呼叫 103 次、SPI_INST 16 顆暫存器的 downsize ECO——**核心心法**就是「跑分析 → 找問題 → 局部修正 → 再驗證」不斷重複。
